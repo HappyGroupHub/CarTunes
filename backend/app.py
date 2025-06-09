@@ -9,7 +9,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
@@ -186,6 +186,37 @@ async def stream_audio(video_id: str, format_id: Optional[str] = None):
 
 
 # ===== Room Endpoints =====
+
+@app.post("/api/room/create", response_model=RoomResponse)
+async def create_room(
+        request: Request,
+        user_id: str = Query(...),
+        user_name: str = Query("User")
+):
+    """
+    Create a new room
+    Only allow creation by internal calls (called by line_bot.py)
+    """
+    # Only allow requests from localhost
+    client_ip = request.client.host
+    if client_ip != "127.0.0.1":
+        raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
+
+    room = room_manager.create_room(
+        user_id=user_id,
+        user_name=user_name
+    )
+
+    return RoomResponse(
+        room_id=room.room_id,
+        created_at=room.created_at.isoformat(),
+        creator_id=room.creator_id,
+        members=[m.dict() for m in room.members],
+        queue=[s.dict() for s in room.queue],
+        current_song=room.current_song.dict() if room.current_song else None,
+        playback_state=room.playback_state.dict(),
+        active_users=room.active_connections
+    )
 
 @app.post("/api/room/join", response_model=RoomResponse)
 async def join_room(request: JoinRoomRequest):
@@ -592,10 +623,11 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
 
 if __name__ == "__main__":
     import uvicorn
+    import utilities as utils
 
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
-        port=8000,
+        port=utils.read_config()['api_endpoints_port'],
         reload=True
     )
