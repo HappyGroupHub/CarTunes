@@ -90,16 +90,21 @@ async def broadcast_playback_progress():
                             next_song.dict() if next_song else None
                         )
                     else:
-                        # Broadcast progress
-                        await ws_manager.broadcast_playback_progress(
-                            room_id,
-                            current_time,
-                            room.current_song.duration
-                        )
+                        # Only broadcast progress every 5 seconds to reduce WebSocket traffic
+                        # and only if there are active connections
+                        connection_count = ws_manager.get_room_connection_count(room_id)
+                        if connection_count > 0:
+                            # Check if we should send progress update (every 5 seconds)
+                            if int(current_time) % 5 == 0:
+                                await ws_manager.broadcast_playback_progress(
+                                    room_id,
+                                    current_time,
+                                    room.current_song.duration
+                                )
         except Exception as e:
             logger.error(f"Error in playback progress broadcast: {e}")
 
-        # Update every second
+        # Update every second but only broadcast every 5 seconds
         await asyncio.sleep(1)
 
 
@@ -572,6 +577,11 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
         await websocket.close(code=4004, reason="Room not found")
         return
 
+    # Verify user is a member of the room
+    if not any(m.user_id == user_id for m in room.members):
+        await websocket.close(code=4003, reason="Not a room member")
+        return
+
     # Connect
     await ws_manager.connect(websocket, room_id, user_id)
 
@@ -598,16 +608,36 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
 
     try:
         while True:
-            # Wait for messages from client
-            data = await websocket.receive_text()
-            message = json.loads(data)
+            # Wait for messages from client with timeout
+            try:
+                # Use asyncio.wait_for to add timeout for receive
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
 
-            # Handle client messages if needed
-            if message.get('type') == 'ping':
-                await websocket.send_text(json.dumps({'type': 'pong'}))
+                try:
+                    message = json.loads(data)
+
+                    # Handle client messages
+                    if message.get('type') == 'ping':
+                        await websocket.send_text(json.dumps({'type': 'pong'}))
+                    # Add other message types as needed
+
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid JSON from client: {data}")
+
+            except asyncio.TimeoutError:
+                # Send ping to check if connection is still alive
+                try:
+                    await websocket.send_text(json.dumps({'type': 'ping'}))
+                except Exception:
+                    # Connection is broken, break the loop
+                    break
 
     except WebSocketDisconnect:
-        # Disconnect
+        logger.info(f"WebSocket disconnected normally for user {user_id} in room {room_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error for user {user_id} in room {room_id}: {e}")
+    finally:
+        # Cleanup: Disconnect and update connection count
         room_id_disconnected, user_id_disconnected = ws_manager.disconnect(websocket)
 
         if room_id_disconnected:

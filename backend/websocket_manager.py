@@ -5,8 +5,6 @@ WebSocket connection management for real-time updates
 import logging
 from datetime import datetime
 from typing import Dict, Set
-import asyncio
-from datetime import datetime, timedelta
 
 from fastapi import WebSocket
 
@@ -22,40 +20,6 @@ class ConnectionManager:
         # websocket -> (room_id, user_id)
         self.connection_info: Dict[WebSocket, tuple] = {}
 
-        # Track last heartbeat time for each connection
-        self.last_heartbeat: Dict[WebSocket, datetime] = {}
-        self.heartbeat_interval = 30
-        self.heartbeat_timeout = 60
-
-    async def _heartbeat_monitor(self, websocket: WebSocket):
-        """Monitor connection health with heartbeat"""
-        while websocket in self.connection_info:
-            try:
-                # Send heartbeat ping
-                await self.send_personal_message(
-                    WSMessage(type=WSMessageType.PING, data={}),
-                    websocket
-                )
-
-                # Update last heartbeat time
-                last_beat = self.last_heartbeat.get(websocket)
-                if last_beat and datetime.now() - last_beat > timedelta(
-                        seconds=self.heartbeat_timeout):
-                    logger.warning(f"WebSocket heartbeat timeout, disconnecting")
-                    self.disconnect(websocket)
-                    break
-
-                await asyncio.sleep(self.heartbeat_interval)
-
-            except Exception as e:
-                logger.error(f"Heartbeat error: {e}")
-                self.disconnect(websocket)
-                break
-
-    async def handle_pong(self, websocket: WebSocket):
-        """Handle pong response from client"""
-        self.last_heartbeat[websocket] = datetime.now()
-
     async def connect(self, websocket: WebSocket, room_id: str, user_id: str):
         """Accept WebSocket connection and add to room"""
         await websocket.accept()
@@ -68,10 +32,6 @@ class ConnectionManager:
         # Store connection info
         self.connection_info[websocket] = (room_id, user_id)
         logger.info(f"User {user_id} connected to room {room_id}")
-
-        # Start heartbeat monitor for this connection
-        self.last_heartbeat[websocket] = datetime.now()
-        asyncio.create_task(self._heartbeat_monitor(websocket))
 
         # Send connection confirmation
         await self.send_personal_message(
@@ -99,9 +59,6 @@ class ConnectionManager:
             del self.connection_info[websocket]
             logger.info(f"User {user_id} disconnected from room {room_id}")
 
-            # Remove heartbeat tracking
-            self.last_heartbeat.pop(websocket, None)
-
             return room_id, user_id
 
         return None, None
@@ -112,6 +69,8 @@ class ConnectionManager:
             await websocket.send_text(message.json())
         except Exception as e:
             logger.error(f"Error sending personal message: {e}")
+            # Remove broken connection
+            self.disconnect(websocket)
 
     async def broadcast_to_room(self, room_id: str, message: WSMessage, exclude: WebSocket = None):
         """Broadcast message to all connections in a room"""
@@ -120,7 +79,8 @@ class ConnectionManager:
 
         disconnected = set()
 
-        for connection in self.active_connections[room_id]:
+        for connection in self.active_connections[
+            room_id].copy():  # Use copy to avoid modification during iteration
             if connection != exclude:
                 try:
                     await connection.send_text(message.json())
@@ -236,4 +196,3 @@ class ConnectionManager:
     def get_all_rooms_with_connections(self) -> Set[str]:
         """Get all room IDs that have active connections"""
         return set(self.active_connections.keys())
-

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, useCallback } from "react" // Add useCallback
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -88,124 +88,132 @@ export default function RoomPage() {
     }
   }
 
+  const handleWebSocketMessage = useCallback(
+    (data: any) => {
+      // Wrap in useCallback
+      console.log("WebSocket message:", data)
+
+      switch (data.type) {
+        case "ROOM_STATE":
+          setRoom(data.data.room)
+          break
+
+        case "SONG_CHANGED":
+          if (room) {
+            setRoom((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    current_song: data.data.current_song,
+                  }
+                : null,
+            )
+
+            // Load new audio
+            if (data.data.current_song && audioRef.current) {
+              loadAudio(data.data.current_song.video_id)
+            }
+          }
+          break
+
+        case "PLAYBACK_STARTED":
+        case "PLAYBACK_PAUSED":
+          if (room) {
+            setRoom((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    playback_state: {
+                      ...prev.playback_state,
+                      is_playing: data.data.is_playing,
+                      current_time: data.data.current_time || prev.playback_state.current_time,
+                    },
+                  }
+                : null,
+            )
+
+            // Sync audio playback
+            if (audioRef.current) {
+              if (data.data.is_playing) {
+                audioRef.current.play()
+              } else {
+                audioRef.current.pause()
+              }
+
+              if (data.data.current_time !== undefined) {
+                audioRef.current.currentTime = data.data.current_time
+              }
+            }
+          }
+          break
+
+        case "PLAYBACK_PROGRESS":
+          setCurrentTime(data.data.current_time)
+          break
+
+        case "SONG_ADDED":
+          if (room) {
+            setRoom((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    queue: [...prev.queue, data.data.song],
+                  }
+                : null,
+            )
+          }
+          break
+
+        case "SONG_REMOVED":
+          if (room) {
+            setRoom((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    queue: prev.queue.filter((song) => song.id !== data.data.song_id),
+                  }
+                : null,
+            )
+          }
+          break
+
+        case "QUEUE_REORDERED":
+          if (room) {
+            setRoom((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    queue: data.data.queue,
+                  }
+                : null,
+            )
+          }
+          break
+      }
+    },
+    [room, audioRef],
+  ) // Add room and audioRef to dependencies
+
   const { isConnected, connectionStatus } = useWebSocket({
     url: `${API_ENDPOINTS.WEBSOCKET(roomId)}?user_id=${userId}`,
     onMessage: handleWebSocketMessage,
-    onConnect: () => {
-      console.log("WebSocket connected")
-    },
-    onDisconnect: () => {
+    onConnect: useCallback(() => {
+      // Wrap in useCallback
+      console.log("WebSocket connected successfully")
+    }, []), // Empty dependency array as it doesn't depend on props/state
+    onDisconnect: useCallback(() => {
+      // Wrap in useCallback
       console.log("WebSocket disconnected")
-    },
-    onConnectionFailed: () => {
-      setErrorMessage("連線中斷，請重新進入網頁")
+    }, []), // Empty dependency array
+    onConnectionFailed: useCallback(() => {
+      // Wrap in useCallback
+      setErrorMessage("連線失敗，請檢查網路連線後重新整理頁面")
       setShowErrorModal(true)
-    },
-    enabled: !isLoading && room !== null, // Only connect if room exists
-    maxReconnectTime: 10000, // 10 seconds max reconnect time
+    }, [setErrorMessage, setShowErrorModal]), // Dependencies for state setters
+    enabled: !isLoading && room !== null,
+    reconnectInterval: 2000,
+    maxReconnectAttempts: 3,
   })
-
-  function handleWebSocketMessage(data: any) {
-    console.log("WebSocket message:", data)
-
-    switch (data.type) {
-      case "ROOM_STATE":
-        setRoom(data.data.room)
-        break
-
-      case "SONG_CHANGED":
-        if (room) {
-          setRoom((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  current_song: data.data.current_song,
-                }
-              : null,
-          )
-
-          // Load new audio
-          if (data.data.current_song && audioRef.current) {
-            loadAudio(data.data.current_song.video_id)
-          }
-        }
-        break
-
-      case "PLAYBACK_STARTED":
-      case "PLAYBACK_PAUSED":
-        if (room) {
-          setRoom((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  playback_state: {
-                    ...prev.playback_state,
-                    is_playing: data.data.is_playing,
-                    current_time: data.data.current_time || prev.playback_state.current_time,
-                  },
-                }
-              : null,
-          )
-
-          // Sync audio playback
-          if (audioRef.current) {
-            if (data.data.is_playing) {
-              audioRef.current.play()
-            } else {
-              audioRef.current.pause()
-            }
-
-            if (data.data.current_time !== undefined) {
-              audioRef.current.currentTime = data.data.current_time
-            }
-          }
-        }
-        break
-
-      case "PLAYBACK_PROGRESS":
-        setCurrentTime(data.data.current_time)
-        break
-
-      case "SONG_ADDED":
-        if (room) {
-          setRoom((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  queue: [...prev.queue, data.data.song],
-                }
-              : null,
-          )
-        }
-        break
-
-      case "SONG_REMOVED":
-        if (room) {
-          setRoom((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  queue: prev.queue.filter((song) => song.id !== data.data.song_id),
-                }
-              : null,
-          )
-        }
-        break
-
-      case "QUEUE_REORDERED":
-        if (room) {
-          setRoom((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  queue: data.data.queue,
-                }
-              : null,
-          )
-        }
-        break
-    }
-  }
 
   async function loadAudio(videoId: string) {
     if (!audioRef.current) return
