@@ -19,9 +19,12 @@ class RoomManager:
         self.user_rooms: Dict[str, str] = {}  # user_id -> room_id mapping
 
     def generate_room_id(self) -> str:
-        """Generate a unique 6-character room ID"""
+        """Generate a unique 6-character room ID
+
+        Contains only uppercase letters and numbers, excluding I, O, 0, 1 for readability.
+        """
         while True:
-            room_id = secrets.token_urlsafe(4)[:6].upper()
+            room_id = ''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(6))
             if room_id not in self.rooms:
                 return room_id
 
@@ -140,6 +143,24 @@ class RoomManager:
             logger.info(f"Room {room_id} deleted (no members)")
 
         return True
+
+    def get_upcoming_video_ids(self, room_id: str, limit: int = 5) -> List[str]:
+        """Get video IDs of upcoming songs in queue for preloading"""
+        room = self.rooms.get(room_id)
+        if not room:
+            return []
+
+        video_ids = []
+
+        # Add current song if playing
+        if room.current_song:
+            video_ids.append(room.current_song.video_id)
+
+        # Add queue songs
+        for song in room.queue[:limit]:
+            video_ids.append(song.video_id)
+
+        return video_ids[:limit]
 
     def add_song_to_queue(self, room_id: str, song_data: dict, user_id: str, user_name: str) -> \
             Optional[Song]:

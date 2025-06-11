@@ -1,7 +1,7 @@
 // API Configuration
 export const API_CONFIG = {
-  BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000",
-  WS_BASE_URL: process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8000",
+  BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
+  WS_BASE_URL: process.env.NEXT_PUBLIC_WS_BASE_URL,
 } as const
 
 // LINE Configuration
@@ -12,6 +12,9 @@ export const LINE_CONFIG = {
 
 // API Endpoints
 export const API_ENDPOINTS = {
+  // Base URL for custom endpoints
+  BASE_URL: API_CONFIG.BASE_URL,
+
   // Room endpoints
   ROOM: (roomId: string) => `${API_CONFIG.BASE_URL}/api/room/${roomId}`,
 

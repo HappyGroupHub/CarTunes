@@ -6,13 +6,14 @@ Real-time collaborative music queue
 import asyncio
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
-from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, Response
 
+from innertube.audio_cache import audio_cache
 from innertube.audio_extractor import get_audio_stream_info
 from models import (
     JoinRoomRequest, AddSongRequest, UpdatePlaybackRequest,
@@ -41,11 +42,18 @@ async def lifespan(app: FastAPI):
     progress_task = asyncio.create_task(broadcast_playback_progress())
     background_tasks.add(progress_task)
 
+    # Start audio preloader
+    preloader_task = asyncio.create_task(audio_preloader())
+    background_tasks.add(preloader_task)
+
     yield
 
     # Shutdown
     for task in background_tasks:
         task.cancel()
+
+    # Clean up audio cache
+    audio_cache.cleanup_all()
 
 
 # Initialize FastAPI app
@@ -62,7 +70,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://localhost:3000",
-        # Add production URLs here
+        "*"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -159,35 +167,276 @@ async def get_audio_info(video_id: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/api/stream/{video_id}")
-async def stream_audio(video_id: str, format_id: Optional[str] = None):
-    """Redirect to YouTube audio stream URL for direct playback"""
+@app.head("/api/stream/{video_id}")
+async def stream_audio_head(video_id: str):
+    """Handle HEAD requests for audio streaming (for URL accessibility testing)"""
     try:
-        audio_info = get_audio_stream_info(video_id)
+        # Check if file is already cached
+        cached_path = audio_cache.get_cache_path(video_id)
 
-        if not audio_info or not audio_info.get('audio_formats'):
-            raise HTTPException(status_code=404, detail="No audio stream available")
+        if cached_path:
+            # Determine media type based on file extension
+            file_extension = os.path.splitext(cached_path)[1].lower()
+            media_type_map = {
+                '.mp3': 'audio/mpeg',
+                '.m4a': 'audio/mp4',
+                '.webm': 'audio/webm',
+                '.ogg': 'audio/ogg'
+                # No .mp4 since we rename them to .mp3
+            }
+            media_type = media_type_map.get(file_extension, 'audio/mpeg')
 
-        # Select audio format
-        audio_url = None
-        if format_id:
-            for fmt in audio_info['audio_formats']:
-                if fmt.get('format_id') == format_id:
-                    audio_url = fmt['url']
-                    break
-        else:
-            audio_url = audio_info['audio_formats'][0]['url']
+            # Get file size
+            file_size = os.path.getsize(cached_path)
 
-        if not audio_url:
-            raise HTTPException(status_code=404, detail="Audio format not found")
+            # Return headers without body (HEAD response)
+            headers = {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+                "Access-Control-Allow-Headers": "Range, Content-Range, Content-Length",
+                "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+                "Cache-Control": "public, max-age=3600",
+                "Accept-Ranges": "bytes",
+                "Content-Type": media_type,
+                "Content-Length": str(file_size),
+            }
 
-        return RedirectResponse(url=audio_url, status_code=302)
+            return Response(headers=headers)
+
+        # If not cached, check if it's downloading
+        if audio_cache.is_downloading(video_id):
+            return Response(
+                status_code=202,  # Accepted - still processing
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "no-cache",
+                }
+            )
+
+        # File not found
+        raise HTTPException(status_code=404, detail="Audio not found")
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error streaming audio: {str(e)}")
-        raise HTTPException(status_code=500, detail="Streaming error")
+        logger.error(f"Error handling HEAD request for {video_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server error")
+
+
+@app.get("/api/stream/{video_id}")
+async def stream_audio(video_id: str):
+    """Stream downloaded audio file"""
+    try:
+        # Check if file is already cached
+        cached_path = audio_cache.get_cache_path(video_id)
+
+        if cached_path:
+            # Determine media type based on file extension
+            file_extension = os.path.splitext(cached_path)[1].lower()
+            media_type_map = {
+                '.mp3': 'audio/mpeg',
+                '.m4a': 'audio/mp4',
+                '.webm': 'audio/webm',
+                '.ogg': 'audio/ogg'
+            }
+            media_type = media_type_map.get(file_extension, 'audio/mpeg')
+
+            logger.info(f"Serving cached audio for {video_id}: {cached_path} as {media_type}")
+
+            # Enhanced headers for better browser compatibility
+            headers = {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+                "Access-Control-Allow-Headers": "Range, Content-Range, Content-Length",
+                "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+                "Cache-Control": "public, max-age=3600",
+                "Accept-Ranges": "bytes",
+                "Content-Type": media_type,
+            }
+
+            return FileResponse(
+                cached_path,
+                media_type=media_type,
+                headers=headers,
+                filename=f"{video_id}{file_extension}"
+            )
+
+        # Download if not cached
+        logger.info(f"Downloading audio for {video_id}")
+        downloaded_path = await audio_cache.download_audio(video_id, priority=True)
+
+        if not downloaded_path:
+            # Find and remove the failed song from any room
+            await handle_failed_song(video_id)
+            raise HTTPException(status_code=404, detail="Audio download failed")
+
+        # Determine media type based on file extension
+        file_extension = os.path.splitext(downloaded_path)[1].lower()
+        media_type_map = {
+            '.mp3': 'audio/mpeg',
+            '.m4a': 'audio/mp4',
+            '.webm': 'audio/webm',
+            '.ogg': 'audio/ogg'
+        }
+        media_type = media_type_map.get(file_extension, 'audio/mpeg')
+
+        logger.info(f"Serving downloaded audio for {video_id}: {downloaded_path} as {media_type}")
+
+        # Enhanced headers for better browser compatibility
+        headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "Range, Content-Range, Content-Length",
+            "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+            "Cache-Control": "public, max-age=3600",
+            "Accept-Ranges": "bytes",
+            "Content-Type": media_type,
+        }
+
+        return FileResponse(
+            downloaded_path,
+            media_type=media_type,
+            headers=headers,
+            filename=f"{video_id}{file_extension}"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error streaming audio {video_id}: {str(e)}")
+        await handle_failed_song(video_id)
+        raise HTTPException(status_code=500, detail="Audio streaming error")
+
+
+@app.get("/api/stream/{video_id}")
+async def stream_audio(video_id: str):
+    """Stream downloaded audio file"""
+    try:
+        # Check if file is already cached
+        cached_path = audio_cache.get_cache_path(video_id)
+
+        if cached_path:
+            # Determine media type based on file extension
+            file_extension = os.path.splitext(cached_path)[1].lower()
+            media_type_map = {
+                '.mp3': 'audio/mpeg',
+                '.mp4': 'audio/mp4',
+                '.m4a': 'audio/mp4',
+                '.webm': 'audio/webm',
+                '.ogg': 'audio/ogg'
+            }
+            media_type = media_type_map.get(file_extension, 'audio/mpeg')
+
+            logger.info(f"Serving cached audio for {video_id}: {cached_path} as {media_type}")
+
+            # Enhanced headers for better browser compatibility
+            headers = {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+                "Access-Control-Allow-Headers": "Range, Content-Range, Content-Length",
+                "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+                "Cache-Control": "public, max-age=3600",
+                "Accept-Ranges": "bytes",
+                "Content-Type": media_type,
+            }
+
+            return FileResponse(
+                cached_path,
+                media_type=media_type,
+                headers=headers,
+                filename=f"{video_id}{file_extension}"  # Add filename for better browser handling
+            )
+
+        # Download if not cached
+        logger.info(f"Downloading audio for {video_id}")
+        downloaded_path = await audio_cache.download_audio(video_id, priority=True)
+
+        if not downloaded_path:
+            # Find and remove the failed song from any room
+            await handle_failed_song(video_id)
+            raise HTTPException(status_code=404, detail="Audio download failed")
+
+        # Determine media type based on file extension
+        file_extension = os.path.splitext(downloaded_path)[1].lower()
+        media_type_map = {
+            '.mp3': 'audio/mpeg',
+            '.mp4': 'audio/mp4',
+            '.m4a': 'audio/mp4',
+            '.webm': 'audio/webm',
+            '.ogg': 'audio/ogg'
+        }
+        media_type = media_type_map.get(file_extension, 'audio/mpeg')
+
+        logger.info(f"Serving downloaded audio for {video_id}: {downloaded_path} as {media_type}")
+
+        # Enhanced headers for better browser compatibility
+        headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "Range, Content-Range, Content-Length",
+            "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+            "Cache-Control": "public, max-age=3600",
+            "Accept-Ranges": "bytes",
+            "Content-Type": media_type,
+        }
+
+        return FileResponse(
+            downloaded_path,
+            media_type=media_type,
+            headers=headers,
+            filename=f"{video_id}{file_extension}"  # Add filename for better browser handling
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error streaming audio {video_id}: {str(e)}")
+        await handle_failed_song(video_id)
+        raise HTTPException(status_code=500, detail="Audio streaming error")
+
+
+async def handle_failed_song(video_id: str):
+    """Handle failed song by removing it from queues and skipping if current"""
+    for room_id in list(room_manager.rooms.keys()):
+        room = room_manager.get_room(room_id)
+        if not room:
+            continue
+
+        # Check if this is the current song
+        if room.current_song and room.current_song.video_id == video_id:
+            logger.info(f"Skipping failed current song {video_id} in room {room_id}")
+            next_song = room_manager.skip_to_next_song(room_id)
+            await ws_manager.broadcast_song_changed(
+                room_id,
+                next_song.dict() if next_song else None
+            )
+            continue
+
+        # Remove from queue if present
+        songs_to_remove = [song for song in room.queue if song.video_id == video_id]
+        for song in songs_to_remove:
+            success = room_manager.remove_song(room_id, song.id)
+            if success:
+                logger.info(f"Removed failed song {video_id} from room {room_id} queue")
+                await ws_manager.broadcast_song_removed(room_id, song.id)
+
+
+async def audio_preloader():
+    """Background task to preload upcoming songs"""
+    while True:
+        try:
+            for room_id in room_manager.rooms.keys():
+                room = room_manager.get_room(room_id)
+                if room and room.queue:
+                    # Get video IDs of upcoming songs
+                    upcoming_video_ids = [song.video_id for song in room.queue[:5]]
+                    await audio_cache.preload_queue_songs(upcoming_video_ids)
+
+        except Exception as e:
+            logger.error(f"Error in audio preloader: {e}")
+
+        # Check every 30 seconds
+        await asyncio.sleep(30)
 
 
 # ===== Room Endpoints =====
@@ -222,6 +471,7 @@ async def create_room(
         playback_state=room.playback_state.dict(),
         active_users=room.active_connections
     )
+
 
 @app.post("/api/room/join", response_model=RoomResponse)
 async def join_room(request: JoinRoomRequest):
@@ -314,17 +564,30 @@ async def add_song_to_queue(
     if not request.title:
         audio_info = get_audio_stream_info(request.video_id)
         if not audio_info:
-            raise HTTPException(status_code=400, detail="Invalid video ID")
+            raise HTTPException(status_code=400, detail="Invalid video ID or video not available")
 
         song_data['title'] = audio_info.get('title', 'Unknown')
         song_data['duration'] = audio_info.get('duration', 0)
         song_data['thumbnail'] = audio_info.get('thumbnail', '')
+
+    # Validate that we can get audio info before adding to queue
+    if not song_data['title'] or song_data['duration'] <= 0:
+        raise HTTPException(status_code=400,
+                            detail="Unable to extract audio information from this video")
 
     # Add song
     song = room_manager.add_song_to_queue(room_id, song_data, user_id, user_name)
 
     if not song:
         raise HTTPException(status_code=500, detail="Failed to add song")
+
+    # Trigger preloading of this song and upcoming songs
+    upcoming_video_ids = [song.video_id for song in room.queue[:5]]
+    if room.current_song:
+        upcoming_video_ids.insert(0, room.current_song.video_id)
+
+    # Start preloading in background
+    asyncio.create_task(audio_cache.preload_queue_songs(upcoming_video_ids))
 
     # Broadcast to room
     await ws_manager.broadcast_song_added(room_id, song.dict())
@@ -659,5 +922,4 @@ if __name__ == "__main__":
         "app:app",
         host="0.0.0.0",
         port=utils.read_config()['api_endpoints_port'],
-        reload=True
     )
