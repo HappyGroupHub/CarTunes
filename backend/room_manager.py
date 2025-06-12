@@ -188,7 +188,7 @@ class RoomManager:
         # If no current song, set this as current
         if not room.current_song and not room.playback_state.is_playing:
             room.current_song = room.queue.pop(0)
-            room.playback_state.is_playing = True
+            room.playback_state.is_playing = False
             room.playback_state.current_time = 0.0
             room.playback_state.last_update = datetime.now()
             self._update_queue_positions(room)

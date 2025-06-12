@@ -1,6 +1,6 @@
 "use client"
 
-import {useEffect, useState, useRef, useCallback} from "react" // Add useCallback
+import {useEffect, useState, useRef, useCallback} from "react"
 import {useParams, useSearchParams, useRouter} from "next/navigation"
 import {Button} from "@/components/ui/button"
 import {Card, CardContent} from "@/components/ui/card"
@@ -19,12 +19,13 @@ import {
     Trash2,
     AlertCircle,
     Loader2,
-    Download
+    Download,
 } from "lucide-react"
 import {useWebSocket} from "@/hooks/use-websocket"
 import {formatTime} from "@/lib/utils"
 import {Modal} from "@/components/ui/modal"
 import {API_ENDPOINTS} from "@/lib/config"
+import {loadAudio} from "@/lib/audio-loader"
 
 interface Song {
     id: string
@@ -72,168 +73,197 @@ export default function RoomPage() {
     const [audioLoading, setAudioLoading] = useState(false)
     const [audioError, setAudioError] = useState<string | null>(null)
     const [songDownloading, setSongDownloading] = useState(false)
+    const [hasUserInteractedWithPlayButton, setHasUserInteractedWithPlayButton] = useState(false)
 
     const audioRef = useRef<HTMLAudioElement>(null)
     const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
-    const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-    const downloadStatusIntervalRef = useRef<NodeJS.Timeout | null>(null)
+    const audioLoaderCleanupRef = useRef<(() => void) | null>(null)
 
-    // Check if room exists before connecting WebSocket
+    // Refs to hold the latest state values for stable callbacks
+    const roomRef = useRef<Room | null>(null)
+    const audioErrorRef = useRef<string | null>(null)
+    const songDownloadingRef = useRef<boolean>(false)
+    const hasUserInteractedWithPlayButtonRef = useRef<boolean>(false)
+
     useEffect(() => {
-        checkRoomExists()
-    }, [roomId])
+        roomRef.current = room
+    }, [room])
 
-    // Check download status for current song
     useEffect(() => {
-        if (room?.current_song) {
-            checkDownloadStatus(room.current_song.video_id)
+        audioErrorRef.current = audioError
+    }, [audioError])
 
-            // Start polling download status
-            downloadStatusIntervalRef.current = setInterval(() => {
-                checkDownloadStatus(room.current_song!.video_id)
-            }, 2000) // Check every 2 seconds
-        } else {
-            setSongDownloading(false)
-            if (downloadStatusIntervalRef.current) {
-                clearInterval(downloadStatusIntervalRef.current)
+    useEffect(() => {
+        songDownloadingRef.current = songDownloading
+    }, [songDownloading])
+
+    useEffect(() => {
+        hasUserInteractedWithPlayButtonRef.current = hasUserInteractedWithPlayButton
+    }, [hasUserInteractedWithPlayButton])
+
+    // Callbacks for audio-loader, made stable by not depending on 'room' directly
+    const handleLoadedMetadata = useCallback((audioElement: HTMLAudioElement, initialTime: number) => {
+        audioElement.currentTime = initialTime
+    }, [])
+
+    const handleCanPlay = useCallback(
+        (audioElement: HTMLAudioElement, isPlaying: boolean, userHasInteracted: boolean) => {
+            if (userHasInteracted && isPlaying && audioElement.paused) {
+                audioElement.play().catch((e) => console.error("Autoplay blocked on canplay:", e))
             }
-        }
+        },
+        [], // No dependencies
+    )
 
-        return () => {
-            if (downloadStatusIntervalRef.current) {
-                clearInterval(downloadStatusIntervalRef.current)
-            }
-        }
-    }, [room?.current_song?.video_id])
-
-    async function checkDownloadStatus(videoId: string) {
-        try {
-            const response = await fetch(`${API_ENDPOINTS.BASE_URL}/api/audio/${videoId}/status`)
-            if (response.ok) {
-                const status = await response.json()
-                setSongDownloading(status.is_downloading)
-
-                // If song is ready and we haven't loaded it yet, load it
-                if (status.status === "ready" && audioRef.current && !audioRef.current.src.includes(videoId)) {
-                    await loadAudio(videoId)
-                }
-            }
-        } catch (error) {
-            console.error("Error checking download status:", error)
-        }
-    }
-
-    async function checkRoomExists() {
-        try {
-            const response = await fetch(API_ENDPOINTS.ROOM(roomId))
-            if (!response.ok) {
-                setErrorMessage("不存在的房間")
-                setShowErrorModal(true)
-                return
+    const loadAudioForCurrentSong = useCallback(
+        async (videoId: string, initialTime: number, isPlaying: boolean, userHasInteracted: boolean) => {
+            if (audioLoaderCleanupRef.current) {
+                audioLoaderCleanupRef.current() // Clean up previous audio loading
+                audioLoaderCleanupRef.current = null
             }
 
-            const roomData = await response.json()
-            setRoom(roomData)
-            setCurrentTime(roomData.playback_state.current_time || 0)
-            setIsLoading(false)
-
-            // Load current song audio
-            if (roomData.current_song) {
-                await loadAudio(roomData.current_song.video_id)
+            if (audioRef.current) {
+                audioLoaderCleanupRef.current = loadAudio(audioRef.current, videoId, {
+                    setAudioLoading,
+                    setAudioError,
+                    setSongDownloading,
+                    onLoadedMetadata: (el) => handleLoadedMetadata(el, initialTime),
+                    onCanPlay: (el) => handleCanPlay(el, isPlaying, userHasInteracted),
+                })
             }
-        } catch (err) {
-            setErrorMessage("不存在的房間")
-            setShowErrorModal(true)
-        }
-    }
+        },
+        [handleLoadedMetadata, handleCanPlay, setAudioLoading, setAudioError, setSongDownloading],
+    )
 
     const handleWebSocketMessage = useCallback(
         (data: any) => {
+            const currentRoom = roomRef.current // Access the latest room state via ref
+            const currentAudioError = audioErrorRef.current
+            const currentSongDownloading = songDownloadingRef.current
+            const currentUserInteracted = hasUserInteractedWithPlayButtonRef.current
+
             console.log("WebSocket message:", data)
 
             switch (data.type) {
                 case "ROOM_STATE":
                     setRoom(data.data.room)
+                    if (audioRef.current && data.data.room.current_song) {
+                        loadAudioForCurrentSong(
+                            data.data.room.current_song.video_id,
+                            data.data.room.playback_state.current_time,
+                            data.data.room.playback_state.is_playing,
+                            currentUserInteracted,
+                        )
+                        if (currentUserInteracted && data.data.room.playback_state.is_playing) {
+                            audioRef.current.play().catch((e) => console.error("Autoplay blocked on ROOM_STATE:", e))
+                        } else {
+                            audioRef.current.pause()
+                        }
+                    }
                     break
 
                 case "SONG_CHANGED":
-                    if (room) {
-                        setRoom((prev) =>
-                            prev
-                                ? {
-                                    ...prev,
-                                    current_song: data.data.current_song,
-                                }
-                                : null,
-                        )
-
-                        // Load new audio
-                        if (data.data.current_song && audioRef.current) {
-                            loadAudio(data.data.current_song.video_id)
-                        } else {
-                            // No current song, clear audio
-                            if (audioRef.current) {
-                                audioRef.current.src = ""
-                                setAudioError(null)
-                                setSongDownloading(false)
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                current_song: data.data.current_song,
+                                playback_state: {
+                                    ...prev.playback_state,
+                                    current_time: 0,
+                                    is_playing: true,
+                                },
                             }
+                            : null,
+                    )
+
+                    if (data.data.current_song && audioRef.current) {
+                        loadAudioForCurrentSong(data.data.current_song.video_id, 0, true, currentUserInteracted)
+                    } else {
+                        if (audioRef.current) {
+                            audioRef.current.src = ""
+                            setAudioError(null)
+                            setSongDownloading(false)
                         }
                     }
                     break
 
                 case "PLAYBACK_STARTED":
                 case "PLAYBACK_PAUSED":
-                    if (room) {
-                        setRoom((prev) =>
-                            prev
-                                ? {
-                                    ...prev,
-                                    playback_state: {
-                                        ...prev.playback_state,
-                                        is_playing: data.data.is_playing,
-                                        current_time: data.data.current_time || prev.playback_state.current_time,
-                                    },
-                                }
-                                : null,
-                        )
+                    const backendIsPlaying = data.data.is_playing
+                    const backendCurrentTime = data.data.current_time
 
-                        // Sync audio playback
-                        if (audioRef.current && !audioError && !songDownloading) {
-                            if (data.data.is_playing) {
-                                audioRef.current.play().catch((error) => {
-                                    console.error("Error playing audio:", error)
-                                    setAudioError("播放失敗")
-                                })
-                            } else {
-                                audioRef.current.pause()
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                playback_state: {
+                                    ...prev.playback_state,
+                                    is_playing: backendIsPlaying,
+                                    current_time: backendCurrentTime || prev.playback_state.current_time,
+                                },
                             }
+                            : null,
+                    )
 
-                            if (data.data.current_time !== undefined) {
-                                audioRef.current.currentTime = data.data.current_time
+                    // Always update local currentTime state with backend's progress
+                    setCurrentTime(backendCurrentTime)
+
+                    if (audioRef.current && !currentAudioError && !currentSongDownloading) {
+                        // Sync current time first if there's a significant difference
+                        if (backendCurrentTime !== undefined) {
+                            const diff = Math.abs(audioRef.current.currentTime - backendCurrentTime)
+                            if (diff > 1) {
+                                console.log(
+                                    `Resyncing audio time from WS: local ${audioRef.current.currentTime.toFixed(2)}, remote ${backendCurrentTime.toFixed(2)}`,
+                                )
+                                audioRef.current.currentTime = backendCurrentTime
+                            }
+                        }
+
+                        // Then sync play/pause state
+                        if (backendIsPlaying) {
+                            // Only attempt to play if the user has interacted AND the audio is currently paused
+                            if (currentUserInteracted && audioRef.current.paused) {
+                                audioRef.current.play().catch((error) => {
+                                    console.error("Error playing audio from WebSocket sync (autoplay blocked):", error)
+                                    setAudioError("播放失敗 (同步)")
+                                })
+                            }
+                        } else {
+                            // Always pause if backend says so
+                            if (!audioRef.current.paused) {
+                                audioRef.current.pause()
                             }
                         }
                     }
                     break
 
                 case "PLAYBACK_PROGRESS":
+                    // Always update local currentTime state with backend's progress
                     setCurrentTime(data.data.current_time)
-                    break
-
-                case "SONG_ADDED":
-                    if (room) {
-                        setRoom((prev) =>
-                            prev
-                                ? {
-                                    ...prev,
-                                    queue: [...prev.queue, data.data.song],
-                                }
-                                : null,
+                    // Only update audio element's currentTime if there's a significant drift
+                    if (audioRef.current && Math.abs(audioRef.current.currentTime - data.data.current_time) > 1) {
+                        console.log(
+                            `Resyncing audio element: local ${audioRef.current.currentTime.toFixed(2)}, remote ${data.data.current_time.toFixed(2)}`,
                         )
+                        audioRef.current.currentTime = data.data.current_time
                     }
                     break
 
+                case "SONG_ADDED":
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                queue: [...prev.queue, data.data.song],
+                            }
+                            : null,
+                    )
+                    break
+
                 case "SONG_REMOVED":
-                    if (room) {
+                    if (currentRoom) {
                         setRoom((prev) =>
                             prev
                                 ? {
@@ -246,7 +276,7 @@ export default function RoomPage() {
                     break
 
                 case "QUEUE_REORDERED":
-                    if (room) {
+                    if (currentRoom) {
                         setRoom((prev) =>
                             prev
                                 ? {
@@ -259,7 +289,7 @@ export default function RoomPage() {
                     break
             }
         },
-        [room, audioRef, audioError, songDownloading],
+        [audioRef, loadAudioForCurrentSong, setRoom, setCurrentTime, setAudioError, setSongDownloading, setAudioLoading],
     )
 
     const {isConnected, connectionStatus} = useWebSocket({
@@ -280,235 +310,222 @@ export default function RoomPage() {
         maxReconnectAttempts: 3,
     })
 
-    async function loadAudio(videoId: string) {
-        if (!audioRef.current) return
+    useEffect(() => {
+        checkRoomExists()
+    }, [roomId])
 
+    useEffect(() => {
+        let downloadStatusInterval: NodeJS.Timeout | null = null
+        if (room?.current_song) {
+            checkDownloadStatus(room.current_song.video_id)
+
+            downloadStatusInterval = setInterval(() => {
+                checkDownloadStatus(room.current_song!.video_id)
+            }, 2000)
+        } else {
+            setSongDownloading(false)
+            if (downloadStatusInterval) {
+                clearInterval(downloadStatusInterval)
+            }
+        }
+
+        return () => {
+            if (downloadStatusInterval) {
+                clearInterval(downloadStatusInterval)
+            }
+        }
+    }, [room, loadAudioForCurrentSong])
+
+    async function checkDownloadStatus(videoId: string) {
         try {
-            setAudioLoading(true)
-            setAudioError(null)
+            const response = await fetch(`${API_ENDPOINTS.BASE_URL}/api/audio/${videoId}/status`)
+            if (response.ok) {
+                const status = await response.json()
+                setSongDownloading(status.is_downloading)
 
-            console.log(`🎵 Starting to load audio for video: ${videoId}`)
-
-            // Set a timeout for loading
-            if (loadingTimeoutRef.current) {
-                clearTimeout(loadingTimeoutRef.current)
-            }
-
-            loadingTimeoutRef.current = setTimeout(() => {
-                console.error("⏰ Audio loading timeout after 30 seconds")
-                setAudioLoading(false)
-                setAudioError("載入超時")
-            }, 30000) // 30 second timeout
-
-            const audioUrl = API_ENDPOINTS.AUDIO_STREAM(videoId)
-            console.log(`🔗 Audio URL: ${audioUrl}`)
-
-            // Set up detailed event listeners
-            const handleLoadStart = () => {
-                console.log("📡 Audio loading started")
-            }
-
-            const handleCanPlay = () => {
-                console.log("✅ Audio can play - loading complete!")
-                setAudioLoading(false)
-                setAudioError(null)
-                if (loadingTimeoutRef.current) {
-                    clearTimeout(loadingTimeoutRef.current)
-                }
-            }
-
-            const handleError = (event: any) => {
-                console.error("❌ Audio error event:", event)
-
-                if (audioRef.current) {
-                    const error = audioRef.current.error
-                    console.error("🚫 Audio element error details:", {
-                        code: error?.code,
-                        message: error?.message,
-                        MEDIA_ERR_ABORTED: error?.code === 1,
-                        MEDIA_ERR_NETWORK: error?.code === 2,
-                        MEDIA_ERR_DECODE: error?.code === 3,
-                        MEDIA_ERR_SRC_NOT_SUPPORTED: error?.code === 4
-                    })
-
-                    // More specific error messages
-                    let errorMessage = "無法載入音訊"
-                    if (error) {
-                        switch (error.code) {
-                            case 1:
-                                errorMessage = "音訊載入被中止"
-                                break
-                            case 2:
-                                errorMessage = "網路錯誤"
-                                break
-                            case 3:
-                                errorMessage = "音訊解碼失敗"
-                                break
-                            case 4:
-                                errorMessage = "音訊格式不支援"
-                                break
-                        }
-                    }
-
-                    console.error(`🔍 Setting error message: ${errorMessage}`)
-                    setAudioError(errorMessage)
-                }
-
-                setAudioLoading(false)
-                if (loadingTimeoutRef.current) {
-                    clearTimeout(loadingTimeoutRef.current)
-                }
-            }
-
-            const handleLoadedData = () => {
-                console.log("📊 Audio data loaded successfully")
-                setAudioLoading(false)
-                if (loadingTimeoutRef.current) {
-                    clearTimeout(loadingTimeoutRef.current)
-                }
-            }
-
-            const handleLoadedMetadata = () => {
-                console.log("📋 Audio metadata loaded")
-            }
-
-            const handleProgress = () => {
-                if (audioRef.current) {
-                    const buffered = audioRef.current.buffered
-                    if (buffered.length > 0) {
-                        const loaded = (buffered.end(buffered.length - 1) / audioRef.current.duration) * 100
-                        console.log(`📈 Audio loading progress: ${loaded.toFixed(1)}%`)
+                if (
+                    status.status === "ready" &&
+                    audioRef.current &&
+                    audioRef.current.src !== API_ENDPOINTS.AUDIO_STREAM(videoId)
+                ) {
+                    console.log(`Download status: ready. Loading audio for ${videoId}.`)
+                    if (roomRef.current && roomRef.current.current_song) {
+                        await loadAudioForCurrentSong(
+                            videoId,
+                            roomRef.current.playback_state.current_time,
+                            roomRef.current.playback_state.is_playing,
+                            hasUserInteractedWithPlayButtonRef.current,
+                        )
+                    } else {
+                        await loadAudioForCurrentSong(videoId, 0, false, hasUserInteractedWithPlayButtonRef.current)
                     }
                 }
+            } else if (response.status === 404) {
+                setSongDownloading(false)
+            }
+        } catch (error) {
+            console.error("Error checking download status:", error)
+            setSongDownloading(false)
+        }
+    }
+
+    async function checkRoomExists() {
+        try {
+            const response = await fetch(API_ENDPOINTS.ROOM(roomId))
+            if (!response.ok) {
+                setErrorMessage("不存在的房間")
+                setShowErrorModal(true)
+                return
             }
 
-            const handleSuspend = () => {
-                console.log("⏸️ Audio loading suspended")
+            const roomData = await response.json()
+            setRoom(roomData)
+            setCurrentTime(roomData.playback_state.current_time || 0) // Initialize currentTime from backend
+            setIsLoading(false)
+
+            if (roomData.current_song) {
+                await loadAudioForCurrentSong(
+                    roomData.current_song.video_id,
+                    roomData.playback_state.current_time,
+                    roomData.playback_state.is_playing,
+                    hasUserInteractedWithPlayButtonRef.current,
+                )
             }
-
-            const handleStalled = () => {
-                console.log("🐌 Audio loading stalled")
-            }
-
-            // Remove any existing event listeners first
-            if (audioRef.current) {
-                const audio = audioRef.current
-                audio.removeEventListener('loadstart', handleLoadStart)
-                audio.removeEventListener('canplay', handleCanPlay)
-                audio.removeEventListener('error', handleError)
-                audio.removeEventListener('loadeddata', handleLoadedData)
-                audio.removeEventListener('loadedmetadata', handleLoadedMetadata)
-                audio.removeEventListener('progress', handleProgress)
-                audio.removeEventListener('suspend', handleSuspend)
-                audio.removeEventListener('stalled', handleStalled)
-            }
-
-            // Add comprehensive event listeners
-            audioRef.current.addEventListener('loadstart', handleLoadStart)
-            audioRef.current.addEventListener('canplay', handleCanPlay)
-            audioRef.current.addEventListener('error', handleError)
-            audioRef.current.addEventListener('loadeddata', handleLoadedData)
-            audioRef.current.addEventListener('loadedmetadata', handleLoadedMetadata)
-            audioRef.current.addEventListener('progress', handleProgress)
-            audioRef.current.addEventListener('suspend', handleSuspend)
-            audioRef.current.addEventListener('stalled', handleStalled)
-
-            // Check if the URL is accessible
-            console.log("🔍 Testing audio URL accessibility...")
-            try {
-                const response = await fetch(audioUrl, {
-                    method: 'HEAD',
-                    mode: 'cors'
-                })
-                console.log(`🌐 URL test response:`, {
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: Object.fromEntries(response.headers.entries())
-                })
-            } catch (fetchError) {
-                console.error("🚨 URL accessibility test failed:", fetchError)
-            }
-
-            // Set source and start loading
-            audioRef.current.src = audioUrl
-            console.log(`🎯 Audio src set to: ${audioRef.current.src}`)
-
-            // Start loading
-            audioRef.current.load()
-            console.log("🚀 Audio.load() called")
-
-            console.log("🔍 Testing audio URL accessibility...")
-            try {
-                const response = await fetch(audioUrl, {
-                    method: 'HEAD',
-                    mode: 'cors'
-                })
-                console.log(`🌐 URL test response:`, {
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: Object.fromEntries(response.headers.entries())
-                })
-
-                if (response.status === 202) {
-                    console.log("⏳ Audio is still downloading on server...")
-                } else if (response.status === 404) {
-                    console.log("❌ Audio not found on server")
-                } else if (response.ok) {
-                    console.log("✅ Audio is ready on server")
-                }
-            } catch (fetchError) {
-                console.error("🚨 URL accessibility test failed:", fetchError)
-            }
-
-            // Clean up event listeners after a delay
-            setTimeout(() => {
-                if (audioRef.current) {
-                    const audio = audioRef.current
-                    audio.removeEventListener('loadstart', handleLoadStart)
-                    audio.removeEventListener('canplay', handleCanPlay)
-                    audio.removeEventListener('error', handleError)
-                    audio.removeEventListener('loadeddata', handleLoadedData)
-                    audio.removeEventListener('loadedmetadata', handleLoadedMetadata)
-                    audio.removeEventListener('progress', handleProgress)
-                    audio.removeEventListener('suspend', handleSuspend)
-                    audio.removeEventListener('stalled', handleStalled)
-                    console.log("🧹 Audio event listeners cleaned up")
-                }
-            }, 35000)
-
         } catch (err) {
-            console.error("💥 Failed to load audio (catch block):", err)
-            setAudioLoading(false)
-            setAudioError("載入失敗")
-            if (loadingTimeoutRef.current) {
-                clearTimeout(loadingTimeoutRef.current)
-            }
+            setErrorMessage("不存在的房間")
+            setShowErrorModal(true)
         }
     }
 
     async function togglePlayback() {
-        if (!room?.current_song) return
-
-        // Don't allow playback if audio has error or is downloading
-        if (audioError || songDownloading) {
-            console.log("Cannot play due to audio error or downloading")
+        if (!room?.current_song || audioError || songDownloading) {
+            console.log("Cannot play due to no current song, audio error, or downloading")
             return
         }
 
-        const newIsPlaying = !room.playback_state.is_playing
-        const currentAudioTime = audioRef.current?.currentTime || currentTime
+        const audioEl = audioRef.current
+        if (!audioEl) return
 
-        try {
-            await fetch(`${API_ENDPOINTS.PLAYBACK(roomId)}?user_id=${userId}`, {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({
-                    is_playing: newIsPlaying,
-                    current_time: currentAudioTime,
-                }),
-            })
-        } catch (err) {
-            console.error("Failed to toggle playback:", err)
+        const roomIsPlaying = room.playback_state.is_playing // Backend's view of playback
+        const localAudioIsPlaying = !audioEl.paused // Local audio element's view
+
+        // Set user interaction flag immediately
+        setHasUserInteractedWithPlayButton(true)
+        hasUserInteractedWithPlayButtonRef.current = true
+
+        if (!roomIsPlaying) {
+            // Scenario 1: Room is NOT playing music (backend says paused)
+            // User clicks play -> start room music
+            try {
+                await audioEl.play() // Attempt local play
+                console.log("Local audio play initiated (Room was paused).")
+                // If local play succeeds, update backend to start room music
+                setRoom((prev) =>
+                    prev
+                        ? {
+                            ...prev,
+                            playback_state: {
+                                ...prev.playback_state,
+                                is_playing: true,
+                                current_time: audioEl.currentTime,
+                            },
+                        }
+                        : null,
+                )
+                await fetch(`${API_ENDPOINTS.PLAYBACK(roomId)}?user_id=${userId}`, {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({
+                        is_playing: true,
+                        current_time: audioEl.currentTime,
+                    }),
+                })
+            } catch (e) {
+                console.error("Error playing audio (Room was paused, autoplay blocked):", e)
+                setAudioError("播放失敗 (自動播放被阻擋或錯誤)")
+                // Revert local UI state if play failed
+                setRoom((prev) =>
+                    prev
+                        ? {
+                            ...prev,
+                            playback_state: {
+                                ...prev.playback_state,
+                                is_playing: false,
+                            },
+                        }
+                        : null,
+                )
+            }
+        } else {
+            // Room IS playing music (backend says playing)
+            if (!localAudioIsPlaying) {
+                // Scenario 2: Local audio is NOT playing (new user, autoplay blocked)
+                // User clicks play -> only start local audio, do NOT send backend command
+                try {
+                    // Fetch latest current_time before playing to ensure accurate sync
+                    const response = await fetch(`${API_ENDPOINTS.ROOM(roomId)}`)
+                    const latestRoomData = await response.json()
+                    const latestCurrentTime = latestRoomData.playback_state.current_time
+
+                    audioEl.currentTime = latestCurrentTime // Sync local audio to latest room time
+                    await audioEl.play()
+                    console.log("Local audio play initiated (Room was already playing).")
+                    // Update local state to reflect playing, but don't send backend command
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                playback_state: {
+                                    ...prev.playback_state,
+                                    is_playing: true, // Local audio is now playing
+                                    current_time: latestCurrentTime,
+                                },
+                            }
+                            : null,
+                    )
+                } catch (e) {
+                    console.error("Error playing audio (Room was already playing, autoplay blocked):", e)
+                    setAudioError("播放失敗 (自動播放被阻擋或錯誤)")
+                    // Revert local UI state if play failed
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                playback_state: {
+                                    ...prev.playback_state,
+                                    is_playing: false,
+                                },
+                            }
+                            : null,
+                    )
+                }
+            } else {
+                // Scenario 3: Local audio IS playing (user wants to pause)
+                // User clicks pause -> pause room music
+                audioEl.pause()
+                console.log("Local audio paused.")
+                // Update local state and send update to backend
+                setRoom((prev) =>
+                    prev
+                        ? {
+                            ...prev,
+                            playback_state: {
+                                ...prev.playback_state,
+                                is_playing: false,
+                                current_time: audioEl.currentTime,
+                            },
+                        }
+                        : null,
+                )
+                await fetch(`${API_ENDPOINTS.PLAYBACK(roomId)}?user_id=${userId}`, {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({
+                        is_playing: false,
+                        current_time: audioEl.currentTime,
+                    }),
+                })
+            }
         }
     }
 
@@ -532,19 +549,27 @@ export default function RoomPage() {
         }
     }
 
-    // Update progress from audio element
+    // This useEffect will manage the local progress bar update
     useEffect(() => {
-        if (room?.playback_state.is_playing && audioRef.current && !audioError && !songDownloading) {
+        if (room?.playback_state.is_playing) {
+            // Initialize currentTime with the backend's current_time when playback starts or room state updates
+            // This ensures the progress bar starts from the correct time even if local audio is blocked
+            setCurrentTime(room.playback_state.current_time)
+
+            // Start a local interval to increment currentTime
             progressIntervalRef.current = setInterval(() => {
-                if (audioRef.current) {
-                    setCurrentTime(audioRef.current.currentTime)
-                }
+                setCurrentTime((prevTime) => prevTime + 1) // Increment by 1 second
             }, 1000)
         } else {
+            // If not playing, clear the interval
             if (progressIntervalRef.current) {
                 clearInterval(progressIntervalRef.current)
                 progressIntervalRef.current = null
             }
+            // When paused, ensure currentTime reflects the last known backend time
+            if (room) {
+                setCurrentTime(room.playback_state.current_time)
+            }
         }
 
         return () => {
@@ -552,16 +577,15 @@ export default function RoomPage() {
                 clearInterval(progressIntervalRef.current)
             }
         }
-    }, [room?.playback_state.is_playing, audioError, songDownloading])
+    }, [room?.playback_state.is_playing, room]) // Depend on is_playing and room to re-initialize
 
-    // Cleanup timeouts on unmount
     useEffect(() => {
         return () => {
-            if (loadingTimeoutRef.current) {
-                clearTimeout(loadingTimeoutRef.current)
+            if (audioLoaderCleanupRef.current) {
+                audioLoaderCleanupRef.current()
             }
-            if (downloadStatusIntervalRef.current) {
-                clearInterval(downloadStatusIntervalRef.current)
+            if (progressIntervalRef.current) {
+                clearInterval(progressIntervalRef.current)
             }
         }
     }, [])
@@ -576,7 +600,7 @@ export default function RoomPage() {
             <div
                 className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600 flex items-center justify-center">
                 <div className="text-white text-center">
-                    <Music className="h-12 w-12 mx-auto mb-4 animate-pulse"/>
+                    <Music className="h-12 w-12 mx-auto mb-4 animate-pulse" strokeWidth={2}/>
                     <p>檢查房間中...</p>
                 </div>
             </div>
@@ -589,7 +613,7 @@ export default function RoomPage() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600">
-            <audio ref={audioRef} preload="metadata"/>
+            <audio ref={audioRef} preload="metadata" crossOrigin="anonymous"/>
 
             {/* Error Modal */}
             <Modal isOpen={showErrorModal} onClose={handleErrorModalClose} title="提示">
@@ -605,14 +629,17 @@ export default function RoomPage() {
             <div className="bg-black/20 backdrop-blur-sm p-4">
                 <div className="flex items-center justify-between max-w-md mx-auto">
                     <div className="flex items-center space-x-2">
-                        <Music className="h-6 w-6 text-white"/>
+                        <Music className="h-6 w-6 text-white" strokeWidth={2}/>
                         <span className="text-white font-semibold">房間 {roomId}</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                        {isConnected ? <Wifi className="h-4 w-4 text-green-400"/> :
-                            <WifiOff className="h-4 w-4 text-red-400"/>}
+                        {isConnected ? (
+                            <Wifi className="h-4 w-4 text-green-400" strokeWidth={2}/>
+                        ) : (
+                            <WifiOff className="h-4 w-4 text-red-400" strokeWidth={2}/>
+                        )}
                         <Badge variant="secondary" className="bg-white/20 text-white">
-                            <Users className="h-3 w-3 mr-1"/>
+                            <Users className="h-3 w-3 mr-1" strokeWidth={2}/>
                             {room.active_users}
                         </Badge>
                     </div>
@@ -624,9 +651,9 @@ export default function RoomPage() {
                 <Card className="bg-white/10 backdrop-blur-sm border-white/20">
                     <CardContent className="p-6">
                         {room.current_song ? (
-                            <div className="space-y-4">
+                            <div className="text-center space-y-4">
                                 {/* Song Info */}
-                                <div className="text-center">
+                                <div>
                                     {room.current_song.thumbnail && (
                                         <img
                                             src={room.current_song.thumbnail || "/placeholder.svg"}
@@ -639,11 +666,11 @@ export default function RoomPage() {
                                         <p className="text-white/70 mb-2">{room.current_song.artist}</p>}
                                     <div className="flex items-center justify-center space-x-4 text-white/60 text-sm">
                                         <div className="flex items-center">
-                                            <User className="h-3 w-3 mr-1"/>
+                                            <User className="h-3 w-3 mr-1" strokeWidth={2}/>
                                             {room.current_song.requested_by_name}
                                         </div>
                                         <div className="flex items-center">
-                                            <Clock className="h-3 w-3 mr-1"/>
+                                            <Clock className="h-3 w-3 mr-1" strokeWidth={2}/>
                                             {formatTime(room.current_song.duration)}
                                         </div>
                                     </div>
@@ -651,21 +678,21 @@ export default function RoomPage() {
                                     {/* Audio Status Indicators */}
                                     {songDownloading && (
                                         <div className="flex items-center justify-center space-x-2 mt-2 text-blue-400">
-                                            <Download className="h-4 w-4 animate-bounce"/>
+                                            <Download className="h-4 w-4 animate-bounce" strokeWidth={2}/>
                                             <span className="text-sm">歌曲載入中...</span>
                                         </div>
                                     )}
 
                                     {audioLoading && !songDownloading && (
                                         <div className="flex items-center justify-center space-x-2 mt-2 text-white/60">
-                                            <Loader2 className="h-4 w-4 animate-spin"/>
+                                            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2}/>
                                             <span className="text-sm">音訊載入中...</span>
                                         </div>
                                     )}
 
                                     {audioError && !songDownloading && (
                                         <div className="flex items-center justify-center space-x-2 mt-2 text-red-400">
-                                            <AlertCircle className="h-4 w-4"/>
+                                            <AlertCircle className="h-4 w-4" strokeWidth={2}/>
                                             <span className="text-sm">{audioError}</span>
                                         </div>
                                     )}
@@ -688,21 +715,25 @@ export default function RoomPage() {
                                         size="lg"
                                         className="bg-white/20 hover:bg-white/30 text-white rounded-full w-16 h-16 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        {room.playback_state.is_playing ? <Pause className="h-8 w-8"/> :
-                                            <Play className="h-8 w-8"/>}
+                                        {/* Icon logic: Show Play if room is paused OR user hasn't interacted yet. Otherwise, show Pause. */}
+                                        {room.playback_state.is_playing && hasUserInteractedWithPlayButton ? (
+                                            <Pause className="h-8 w-8" strokeWidth={2}/>
+                                        ) : (
+                                            <Play className="h-8 w-8" strokeWidth={2}/>
+                                        )}
                                     </Button>
                                     <Button
                                         onClick={skipToNext}
                                         size="lg"
                                         className="bg-white/20 hover:bg-white/30 text-white rounded-full w-16 h-16"
                                     >
-                                        <SkipForward className="h-8 w-8"/>
+                                        <SkipForward className="h-8 w-8" strokeWidth={2}/>
                                     </Button>
                                 </div>
                             </div>
                         ) : (
                             <div className="text-center text-white/60 py-8">
-                                <Music className="h-12 w-12 mx-auto mb-4 opacity-50"/>
+                                <Music className="h-12 w-12 mx-auto mb-4 opacity-50" strokeWidth={2}/>
                                 <p>目前沒有播放歌曲</p>
                                 <p className="text-sm mt-2">透過 LINE Bot 點歌開始播放</p>
                             </div>
@@ -714,7 +745,7 @@ export default function RoomPage() {
                 <Card className="bg-white/10 backdrop-blur-sm border-white/20">
                     <CardContent className="p-4">
                         <h3 className="text-white font-semibold mb-4 flex items-center">
-                            <Music className="h-4 w-4 mr-2"/>
+                            <Music className="h-4 w-4 mr-2" strokeWidth={2}/>
                             播放清單 ({room.queue.length})
                         </h3>
 
@@ -745,7 +776,7 @@ export default function RoomPage() {
                                             variant="ghost"
                                             className="text-white/60 hover:text-red-400 hover:bg-red-500/20"
                                         >
-                                            <Trash2 className="h-4 w-4"/>
+                                            <Trash2 className="h-4 w-4" strokeWidth={2}/>
                                         </Button>
                                     </div>
                                 ))}
@@ -763,7 +794,7 @@ export default function RoomPage() {
                 <Card className="bg-white/10 backdrop-blur-sm border-white/20">
                     <CardContent className="p-4">
                         <h3 className="text-white font-semibold mb-4 flex items-center">
-                            <Users className="h-4 w-4 mr-2"/>
+                            <Users className="h-4 w-4 mr-2" strokeWidth={2}/>
                             房間成員 ({room.members.length})
                         </h3>
 
@@ -771,7 +802,7 @@ export default function RoomPage() {
                             {room.members.map((member) => (
                                 <div key={member.user_id}
                                      className="flex items-center space-x-3 p-2 bg-white/5 rounded">
-                                    <User className="h-4 w-4 text-white/60"/>
+                                    <User className="h-4 w-4 text-white/60" strokeWidth={2}/>
                                     <span className="text-white">{member.user_name}</span>
                                     {member.user_id === userId && (
                                         <Badge variant="secondary" className="bg-white/20 text-white text-xs">

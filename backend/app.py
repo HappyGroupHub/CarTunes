@@ -167,6 +167,17 @@ async def get_audio_info(video_id: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@app.get("/api/audio/{video_id}/status")
+async def get_audio_status(video_id: str):
+    """Get the download status of an audio file"""
+    if audio_cache.is_downloading(video_id):
+        return {"status": "downloading", "is_downloading": True}
+    elif audio_cache.get_cache_path(video_id):
+        return {"status": "ready", "is_downloading": False}
+    else:
+        raise HTTPException(status_code=404, detail="Audio not found or not yet initiated download")
+
+
 @app.head("/api/stream/{video_id}")
 async def stream_audio_head(video_id: str):
     """Handle HEAD requests for audio streaming (for URL accessibility testing)"""
@@ -177,14 +188,8 @@ async def stream_audio_head(video_id: str):
         if cached_path:
             # Determine media type based on file extension
             file_extension = os.path.splitext(cached_path)[1].lower()
-            media_type_map = {
-                '.mp3': 'audio/mpeg',
-                '.m4a': 'audio/mp4',
-                '.webm': 'audio/webm',
-                '.ogg': 'audio/ogg'
-                # No .mp4 since we rename them to .mp3
-            }
-            media_type = media_type_map.get(file_extension, 'audio/mpeg')
+            # Since we are converting to MP3, the media type will always be audio/mpeg
+            media_type = 'audio/mpeg'
 
             # Get file size
             file_size = os.path.getsize(cached_path)
@@ -233,13 +238,8 @@ async def stream_audio(video_id: str):
         if cached_path:
             # Determine media type based on file extension
             file_extension = os.path.splitext(cached_path)[1].lower()
-            media_type_map = {
-                '.mp3': 'audio/mpeg',
-                '.m4a': 'audio/mp4',
-                '.webm': 'audio/webm',
-                '.ogg': 'audio/ogg'
-            }
-            media_type = media_type_map.get(file_extension, 'audio/mpeg')
+            # Since we are converting to MP3, the media type will always be audio/mpeg
+            media_type = 'audio/mpeg'
 
             logger.info(f"Serving cached audio for {video_id}: {cached_path} as {media_type}")
 
@@ -272,13 +272,8 @@ async def stream_audio(video_id: str):
 
         # Determine media type based on file extension
         file_extension = os.path.splitext(downloaded_path)[1].lower()
-        media_type_map = {
-            '.mp3': 'audio/mpeg',
-            '.m4a': 'audio/mp4',
-            '.webm': 'audio/webm',
-            '.ogg': 'audio/ogg'
-        }
-        media_type = media_type_map.get(file_extension, 'audio/mpeg')
+        # Since we are converting to MP3, the media type will always be audio/mpeg
+        media_type = 'audio/mpeg'
 
         logger.info(f"Serving downloaded audio for {video_id}: {downloaded_path} as {media_type}")
 
@@ -298,93 +293,6 @@ async def stream_audio(video_id: str):
             media_type=media_type,
             headers=headers,
             filename=f"{video_id}{file_extension}"
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error streaming audio {video_id}: {str(e)}")
-        await handle_failed_song(video_id)
-        raise HTTPException(status_code=500, detail="Audio streaming error")
-
-
-@app.get("/api/stream/{video_id}")
-async def stream_audio(video_id: str):
-    """Stream downloaded audio file"""
-    try:
-        # Check if file is already cached
-        cached_path = audio_cache.get_cache_path(video_id)
-
-        if cached_path:
-            # Determine media type based on file extension
-            file_extension = os.path.splitext(cached_path)[1].lower()
-            media_type_map = {
-                '.mp3': 'audio/mpeg',
-                '.mp4': 'audio/mp4',
-                '.m4a': 'audio/mp4',
-                '.webm': 'audio/webm',
-                '.ogg': 'audio/ogg'
-            }
-            media_type = media_type_map.get(file_extension, 'audio/mpeg')
-
-            logger.info(f"Serving cached audio for {video_id}: {cached_path} as {media_type}")
-
-            # Enhanced headers for better browser compatibility
-            headers = {
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-                "Access-Control-Allow-Headers": "Range, Content-Range, Content-Length",
-                "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
-                "Cache-Control": "public, max-age=3600",
-                "Accept-Ranges": "bytes",
-                "Content-Type": media_type,
-            }
-
-            return FileResponse(
-                cached_path,
-                media_type=media_type,
-                headers=headers,
-                filename=f"{video_id}{file_extension}"  # Add filename for better browser handling
-            )
-
-        # Download if not cached
-        logger.info(f"Downloading audio for {video_id}")
-        downloaded_path = await audio_cache.download_audio(video_id, priority=True)
-
-        if not downloaded_path:
-            # Find and remove the failed song from any room
-            await handle_failed_song(video_id)
-            raise HTTPException(status_code=404, detail="Audio download failed")
-
-        # Determine media type based on file extension
-        file_extension = os.path.splitext(downloaded_path)[1].lower()
-        media_type_map = {
-            '.mp3': 'audio/mpeg',
-            '.mp4': 'audio/mp4',
-            '.m4a': 'audio/mp4',
-            '.webm': 'audio/webm',
-            '.ogg': 'audio/ogg'
-        }
-        media_type = media_type_map.get(file_extension, 'audio/mpeg')
-
-        logger.info(f"Serving downloaded audio for {video_id}: {downloaded_path} as {media_type}")
-
-        # Enhanced headers for better browser compatibility
-        headers = {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-            "Access-Control-Allow-Headers": "Range, Content-Range, Content-Length",
-            "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
-            "Cache-Control": "public, max-age=3600",
-            "Accept-Ranges": "bytes",
-            "Content-Type": media_type,
-        }
-
-        return FileResponse(
-            downloaded_path,
-            media_type=media_type,
-            headers=headers,
-            filename=f"{video_id}{file_extension}"  # Add filename for better browser handling
         )
 
     except HTTPException:

@@ -29,6 +29,8 @@ export const API_ENDPOINTS = {
   // Audio endpoints
   AUDIO_INFO: (videoId: string) => `${API_CONFIG.BASE_URL}/api/audio/${videoId}`,
   AUDIO_STREAM: (videoId: string) => `${API_CONFIG.BASE_URL}/api/stream/${videoId}`,
+  // Add the new status endpoint
+  AUDIO_STATUS: (videoId: string) => `${API_CONFIG.BASE_URL}/api/audio/${videoId}/status`,
 
   // WebSocket endpoint
   WEBSOCKET: (roomId: string) => `${API_CONFIG.WS_BASE_URL}/ws/${roomId}`,

@@ -67,55 +67,44 @@ class AudioCacheManager:
             await self._cleanup_cache()
 
             url = f'https://www.youtube.com/watch?v={video_id}'
+            ffmpeg_path = shutil.which('ffmpeg')
 
-            # Simple download without any conversion
-            ydl_opts = {
-                'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
-                'outtmpl': os.path.join(self.cache_dir, f'{video_id}.%(ext)s'),
-                'quiet': True,
-                'no_warnings': True,
-            }
+            # Configure yt-dlp to extract audio and convert to MP3 using ffmpeg
+            if ffmpeg_path:
+                logger.warning(f"Found ffmpeg at: {ffmpeg_path}")
+                ydl_opts = {
+                    'format': 'bestaudio/best',  # Select the best audio format
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',  # Convert to MP3
+                        'preferredquality': '192', # Set preferred quality (e.g., 192kbps)
+                    }],
+                    'outtmpl': os.path.join(self.cache_dir, f'{video_id}.%(ext)s'),
+                    'quiet': True,
+                    'no_warnings': True,
+                    'ffmpeg_location': ffmpeg_path # Uncomment and set if ffmpeg is not in PATH
+                }
+            else:
+                logger.warning(f"ffmpeg not found in PATH, using yt-dlp defaults. ")
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Download the audio
+                # Download and convert the audio
                 info = ydl.extract_info(url, download=True)
 
-                # Look for downloaded file
-                expected_extensions = ['m4a', 'webm', 'mp4', 'mp3', 'ogg']
-                downloaded_file = None
+                # The output file will now always be .mp3 due to postprocessor
+                downloaded_file = os.path.join(self.cache_dir, f'{video_id}.mp3')
 
-                for ext in expected_extensions:
-                    potential_file = os.path.join(self.cache_dir, f'{video_id}.{ext}')
-                    if os.path.exists(potential_file):
-                        downloaded_file = potential_file
-                        logger.info(f"Found downloaded file: {downloaded_file}")
-                        break
-
-                if not downloaded_file:
-                    # Debug: List all files in cache dir to see what was actually downloaded
+                if not os.path.exists(downloaded_file):
+                    logger.error(f"Downloaded MP3 file not found for video {video_id} after yt_dlp.extract_info. Info: {info}")
+                    # Fallback: try to find any file that starts with the video ID
                     cache_files = os.listdir(self.cache_dir)
-                    logger.error(f"Downloaded file not found for video {video_id}")
-                    logger.error(f"Cache dir contents: {cache_files}")
-
-                    # Try to find any file that starts with the video ID
                     for file in cache_files:
                         if file.startswith(video_id):
                             downloaded_file = os.path.join(self.cache_dir, file)
-                            logger.info(f"Found file by prefix match: {downloaded_file}")
+                            logger.info(f"Found file by prefix match as fallback: {downloaded_file}")
                             break
-
                     if not downloaded_file:
                         return None
-
-                # If the file is MP4, rename it to MP3 for better browser compatibility
-                if downloaded_file.endswith('.mp4'):
-                    mp3_file = downloaded_file.replace('.mp4', '.mp3')
-                    try:
-                        os.rename(downloaded_file, mp3_file)
-                        downloaded_file = mp3_file
-                        logger.info(f"Renamed MP4 to MP3: {downloaded_file}")
-                    except OSError as e:
-                        logger.warning(f"Failed to rename MP4 to MP3: {e}, keeping original")
 
                 # Add to cache
                 file_size = os.path.getsize(downloaded_file)
@@ -126,11 +115,11 @@ class AudioCacheManager:
                 }
 
                 logger.info(
-                    f"Audio downloaded for {video_id}: {downloaded_file} ({file_size} bytes)")
+                    f"Audio downloaded and converted to MP3 for {video_id}: {downloaded_file} ({file_size} bytes)")
                 return downloaded_file
 
         except Exception as e:
-            logger.error(f"Error downloading audio for {video_id}: {e}")
+            logger.error(f"Error downloading or converting audio for {video_id}: {e}")
             return None
 
     async def _cleanup_cache(self):
