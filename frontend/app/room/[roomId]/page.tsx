@@ -143,8 +143,9 @@ export default function RoomPage() {
             const currentUserInteracted = hasUserInteractedWithPlayButtonRef.current
 
             console.log("WebSocket message:", data)
+            const messageType = typeof data.type === "string" ? data.type.toUpperCase() : data.type
 
-            switch (data.type) {
+            switch (messageType) {
                 case "ROOM_STATE":
                     setRoom(data.data.room)
                     if (audioRef.current && data.data.room.current_song) {
@@ -171,83 +172,19 @@ export default function RoomPage() {
                                 playback_state: {
                                     ...prev.playback_state,
                                     current_time: 0,
-                                    is_playing: true,
-                                },
+                                    is_playing: false
+                                }
                             }
                             : null,
                     )
-
-                    if (data.data.current_song && audioRef.current) {
-                        loadAudioForCurrentSong(data.data.current_song.video_id, 0, true, currentUserInteracted)
-                    } else {
-                        if (audioRef.current) {
-                            audioRef.current.src = ""
-                            setAudioError(null)
-                            setSongDownloading(false)
-                        }
-                    }
-                    break
-
-                case "PLAYBACK_STARTED":
-                case "PLAYBACK_PAUSED":
-                    const backendIsPlaying = data.data.is_playing
-                    const backendCurrentTime = data.data.current_time
-
-                    setRoom((prev) =>
-                        prev
-                            ? {
-                                ...prev,
-                                playback_state: {
-                                    ...prev.playback_state,
-                                    is_playing: backendIsPlaying,
-                                    current_time: backendCurrentTime || prev.playback_state.current_time,
-                                },
-                            }
-                            : null,
-                    )
-
-                    // Always update local currentTime state with backend's progress
-                    setCurrentTime(backendCurrentTime)
-
-                    if (audioRef.current && !currentAudioError && !currentSongDownloading) {
-                        // Sync current time first if there's a significant difference
-                        if (backendCurrentTime !== undefined) {
-                            const diff = Math.abs(audioRef.current.currentTime - backendCurrentTime)
-                            if (diff > 1) {
-                                console.log(
-                                    `Resyncing audio time from WS: local ${audioRef.current.currentTime.toFixed(2)}, remote ${backendCurrentTime.toFixed(2)}`,
-                                )
-                                audioRef.current.currentTime = backendCurrentTime
-                            }
-                        }
-
-                        // Then sync play/pause state
-                        if (backendIsPlaying) {
-                            // Only attempt to play if the user has interacted AND the audio is currently paused
-                            if (currentUserInteracted && audioRef.current.paused) {
-                                audioRef.current.play().catch((error) => {
-                                    console.error("Error playing audio from WebSocket sync (autoplay blocked):", error)
-                                    setAudioError("播放失敗 (同步)")
-                                })
-                            }
-                        } else {
-                            // Always pause if backend says so
-                            if (!audioRef.current.paused) {
-                                audioRef.current.pause()
-                            }
-                        }
-                    }
-                    break
-
-                case "PLAYBACK_PROGRESS":
-                    // Always update local currentTime state with backend's progress
-                    setCurrentTime(data.data.current_time)
-                    // Only update audio element's currentTime if there's a significant drift
-                    if (audioRef.current && Math.abs(audioRef.current.currentTime - data.data.current_time) > 1) {
-                        console.log(
-                            `Resyncing audio element: local ${audioRef.current.currentTime.toFixed(2)}, remote ${data.data.current_time.toFixed(2)}`,
+                    // Load new song audio
+                    if (audioRef.current && data.data.current_song) {
+                        loadAudioForCurrentSong(
+                            data.data.current_song.video_id,
+                            0,
+                            false,
+                            currentUserInteracted,
                         )
-                        audioRef.current.currentTime = data.data.current_time
                     }
                     break
 
@@ -263,33 +200,160 @@ export default function RoomPage() {
                     break
 
                 case "SONG_REMOVED":
-                    if (currentRoom) {
-                        setRoom((prev) =>
-                            prev
-                                ? {
-                                    ...prev,
-                                    queue: prev.queue.filter((song) => song.id !== data.data.song_id),
-                                }
-                                : null,
-                        )
-                    }
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                queue: prev.queue.filter(song => song.id !== data.data.song_id),
+                            }
+                            : null,
+                    )
                     break
 
                 case "QUEUE_REORDERED":
-                    if (currentRoom) {
-                        setRoom((prev) =>
-                            prev
-                                ? {
-                                    ...prev,
-                                    queue: data.data.queue,
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                queue: data.data.queue,
+                            }
+                            : null,
+                    )
+                    break
+
+                case "PLAYBACK_STARTED":
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                playback_state: {
+                                    ...prev.playback_state,
+                                    is_playing: true,
+                                    current_time: data.data.current_time || prev.playback_state.current_time
                                 }
-                                : null,
-                        )
+                            }
+                            : null,
+                    )
+                    // Handle audio playback
+                    if (audioRef.current && currentUserInteracted) {
+                        if (data.data.current_time !== undefined) {
+                            audioRef.current.currentTime = data.data.current_time
+                        }
+                        audioRef.current.play().catch((e) => console.error("Autoplay blocked on PLAYBACK_STARTED:", e))
                     }
+                    break
+
+                case "PLAYBACK_PAUSED":
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                playback_state: {
+                                    ...prev.playback_state,
+                                    is_playing: false,
+                                    current_time: data.data.current_time || prev.playback_state.current_time
+                                }
+                            }
+                            : null,
+                    )
+                    // Pause audio
+                    if (audioRef.current) {
+                        if (data.data.current_time !== undefined) {
+                            audioRef.current.currentTime = data.data.current_time
+                        }
+                        audioRef.current.pause()
+                    }
+                    break
+
+                case "PLAYBACK_SEEKED":
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                playback_state: {
+                                    ...prev.playback_state,
+                                    current_time: data.data.current_time
+                                }
+                            }
+                            : null,
+                    )
+                    // Sync audio element time
+                    if (audioRef.current) {
+                        audioRef.current.currentTime = data.data.current_time
+                    }
+                    break
+
+                case "USER_JOINED":
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                members: [
+                                    ...prev.members.filter(m => m.user_id !== data.data.user_id),
+                                    {
+                                        user_id: data.data.user_id,
+                                        user_name: data.data.user_name,
+                                        joined_at: data.data.timestamp
+                                    }
+                                ],
+                                active_users: prev.active_users + 1
+                            }
+                            : null,
+                    )
+                    break
+
+                case "USER_LEFT":
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                members: prev.members.filter(m => m.user_id !== data.data.user_id),
+                                active_users: Math.max(0, prev.active_users - 1)
+                            }
+                            : null,
+                    )
+                    break
+
+                case "ROOM_STATS_UPDATE":
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                active_users: data.data.active_users
+                            }
+                            : null,
+                    )
+                    break
+
+                case "PLAYBACK_PROGRESS":
+                    // Update current time without triggering re-render if the difference is small
+                    setCurrentTime(data.data.current_time)
+                    // Only update audio element's currentTime if there's a significant drift
+                    if (audioRef.current && Math.abs(audioRef.current.currentTime - data.data.current_time) > 1) {
+                        console.log(
+                            `Resyncing audio element: local ${audioRef.current.currentTime.toFixed(2)}, remote ${data.data.current_time.toFixed(2)}`,
+                        )
+                        audioRef.current.currentTime = data.data.current_time
+                    }
+                    break
+
+                case "ERROR":
+                    console.error("WebSocket error:", data.data)
+                    setErrorMessage(data.data.message || "發生未知錯誤")
+                    setShowErrorModal(true)
+                    break
+
+                case "ROOM_CLOSING":
+                    setErrorMessage("房間已關閉")
+                    setShowErrorModal(true)
+                    break
+
+                default:
+                    console.log("Unhandled WebSocket message type:", data.type)
                     break
             }
         },
-        [audioRef, loadAudioForCurrentSong, setRoom, setCurrentTime, setAudioError, setSongDownloading, setAudioLoading],
+        [loadAudioForCurrentSong, setErrorMessage, setShowErrorModal],
     )
 
     const {isConnected, connectionStatus} = useWebSocket({
