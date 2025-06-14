@@ -208,6 +208,7 @@ class RoomManager:
         if room.queue:
             room.current_song = room.queue.pop(0)
             room.playback_state.current_time = 0.0
+            room.playback_state.is_playing = True  # FIXED: Set to playing when new song starts
             room.playback_state.last_update = datetime.now()
             self._update_queue_positions(room)
         else:

@@ -147,56 +147,86 @@ export default function RoomPage() {
 
             switch (messageType) {
                 case "ROOM_STATE":
-                    setRoom(data.data.room)
-                    if (audioRef.current && data.data.room.current_song) {
+                    const roomData = data.data.room
+                    setRoom(prev => ({
+                        room_id: roomData.room_id,
+                        members: roomData.members,
+                        queue: roomData.queue,
+                        current_song: roomData.current_song,
+                        // FIXED: Preserve current_time if song is the same and currently playing
+                        playback_state: prev?.current_song?.id === roomData.current_song?.id && prev?.playback_state.is_playing
+                            ? {
+                                ...roomData.playback_state,
+                                current_time: prev.playback_state.current_time // Keep current progress
+                            }
+                            : roomData.playback_state,
+                        active_users: roomData.active_users || 0
+                    }))
+
+                    if (roomData.current_song && audioRef.current) {
                         loadAudioForCurrentSong(
-                            data.data.room.current_song.video_id,
-                            data.data.room.playback_state.current_time,
-                            data.data.room.playback_state.is_playing,
+                            roomData.current_song.video_id,
+                            roomData.playback_state.current_time || 0,
+                            roomData.playback_state.is_playing || false,
                             currentUserInteracted,
                         )
-                        if (currentUserInteracted && data.data.room.playback_state.is_playing) {
-                            audioRef.current.play().catch((e) => console.error("Autoplay blocked on ROOM_STATE:", e))
-                        } else {
-                            audioRef.current.pause()
-                        }
                     }
                     break
 
                 case "SONG_CHANGED":
+                    console.log("Song changed:", data.data.current_song)
                     setRoom((prev) =>
                         prev
                             ? {
                                 ...prev,
                                 current_song: data.data.current_song,
+                                // FIXED: Reset current_time when song changes
                                 playback_state: {
                                     ...prev.playback_state,
                                     current_time: 0,
-                                    is_playing: false
+                                    // FIXED: Set is_playing to false when no current song
+                                    is_playing: data.data.current_song ? prev.playback_state.is_playing : false
                                 }
                             }
                             : null,
                     )
-                    // Load new song audio
-                    if (audioRef.current && data.data.current_song) {
+
+                    // Handle both new song and no song cases
+                    if (data.data.current_song && audioRef.current) {
+                        // Load new audio when song changes to a new song
                         loadAudioForCurrentSong(
                             data.data.current_song.video_id,
-                            0,
-                            false,
+                            0, // Start from beginning
+                            true, // Should be playing since this is a skip action
                             currentUserInteracted,
                         )
+                    } else if (!data.data.current_song && audioRef.current) {
+                        // Pause and clear audio when no current song
+                        audioRef.current.pause()
+                        audioRef.current.src = ""
+                        setCurrentTime(0)
+                        setAudioError(null)
+                        setAudioLoading(false)
+                        setSongDownloading(false)
+
+                        // Clean up any ongoing audio loading
+                        if (audioLoaderCleanupRef.current) {
+                            audioLoaderCleanupRef.current()
+                            audioLoaderCleanupRef.current = null
+                        }
                     }
                     break
 
                 case "SONG_ADDED":
-                    setRoom((prev) =>
-                        prev
-                            ? {
-                                ...prev,
-                                queue: [...prev.queue, data.data.song],
-                            }
-                            : null,
-                    )
+                    setRoom((prev) => {
+                        if (!prev) return null;
+
+                        return {
+                            ...prev,
+                            queue: [...prev.queue, data.data.song],
+                            // FIXED: Don't touch playback_state when adding songs to queue
+                        }
+                    })
                     break
 
                 case "SONG_REMOVED":
@@ -244,24 +274,30 @@ export default function RoomPage() {
                     break
 
                 case "PLAYBACK_PAUSED":
+                    console.log("Playback state changed:", data.data)
+                    const newIsPlaying = data.data.is_playing
+                    const newCurrentTime = data.data.current_time
+
                     setRoom((prev) =>
                         prev
                             ? {
                                 ...prev,
                                 playback_state: {
                                     ...prev.playback_state,
-                                    is_playing: false,
-                                    current_time: data.data.current_time || prev.playback_state.current_time
-                                }
+                                    is_playing: newIsPlaying,
+                                    current_time: newCurrentTime !== undefined ? newCurrentTime : prev.playback_state.current_time,
+                                },
                             }
                             : null,
                     )
-                    // Pause audio
-                    if (audioRef.current) {
-                        if (data.data.current_time !== undefined) {
-                            audioRef.current.currentTime = data.data.current_time
+
+                    // FIXED: Only sync audio if there's a significant time difference or if this is from a skip
+                    // Don't interfere with user's play/pause actions
+                    if (audioRef.current && newCurrentTime !== undefined) {
+                        // Only sync time if there's a significant difference (more than 2 seconds)
+                        if (Math.abs(audioRef.current.currentTime - newCurrentTime) > 2) {
+                            audioRef.current.currentTime = newCurrentTime
                         }
-                        audioRef.current.pause()
                     }
                     break
 
@@ -616,8 +652,7 @@ export default function RoomPage() {
     // This useEffect will manage the local progress bar update
     useEffect(() => {
         if (room?.playback_state.is_playing) {
-            // Initialize currentTime with the backend's current_time when playback starts or room state updates
-            // This ensures the progress bar starts from the correct time even if local audio is blocked
+            // Initialize currentTime with the backend's current_time when playback starts or song changes
             setCurrentTime(room.playback_state.current_time)
 
             // Start a local interval to increment currentTime
@@ -641,7 +676,7 @@ export default function RoomPage() {
                 clearInterval(progressIntervalRef.current)
             }
         }
-    }, [room?.playback_state.is_playing, room]) // Depend on is_playing and room to re-initialize
+    }, [room?.playback_state.is_playing, room?.current_song?.id])
 
     useEffect(() => {
         return () => {

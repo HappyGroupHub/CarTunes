@@ -97,6 +97,9 @@ async def broadcast_playback_progress():
                             room_id,
                             next_song.dict() if next_song else None
                         )
+                        # FIXED: Also broadcast queue update for natural song finish
+                        await ws_manager.broadcast_queue_reordered(room_id,
+                                                                   [s.dict() for s in room.queue])
                     else:
                         # Only broadcast progress every 5 seconds to reduce WebSocket traffic
                         # and only if there are active connections
@@ -483,6 +486,9 @@ async def add_song_to_queue(
         raise HTTPException(status_code=400,
                             detail="Unable to extract audio information from this video")
 
+    # Check if this will be the first song (current song)
+    will_be_current_song = not room.current_song and not room.playback_state.is_playing
+
     # Add song
     song = room_manager.add_song_to_queue(room_id, song_data, user_id, user_name)
 
@@ -497,10 +503,11 @@ async def add_song_to_queue(
     # Start preloading in background
     asyncio.create_task(audio_cache.preload_queue_songs(upcoming_video_ids))
 
-    # Broadcast to room
-    await ws_manager.broadcast_song_added(room_id, song.dict())
+    # FIXED: Only broadcast song_added if it's going to queue, not if it became current song
+    if not will_be_current_song:
+        await ws_manager.broadcast_song_added(room_id, song.dict())
 
-    # If this became the current song, broadcast that too
+    # If this became the current song, broadcast that instead
     if room.current_song and room.current_song.id == song.id:
         await ws_manager.broadcast_song_changed(room_id, song.dict())
 
@@ -545,10 +552,20 @@ async def skip_to_next_song(
 
     next_song = room_manager.skip_to_next_song(room_id)
 
-    # Broadcast to room
+    # Broadcast song change to room
     await ws_manager.broadcast_song_changed(
         room_id,
         next_song.dict() if next_song else None
+    )
+
+    # FIXED: Broadcast updated queue after skipping
+    await ws_manager.broadcast_queue_reordered(room_id, [s.dict() for s in room.queue])
+
+    # FIXED: Also broadcast playback state change to ensure song starts playing
+    await ws_manager.broadcast_playback_state(
+        room_id,
+        room.playback_state.is_playing,
+        room.playback_state.current_time
     )
 
     return {
