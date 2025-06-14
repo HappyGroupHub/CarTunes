@@ -148,19 +148,20 @@ export default function RoomPage() {
             switch (messageType) {
                 case "ROOM_STATE":
                     const roomData = data.data.room
-                    setRoom(prev => ({
+                    setRoom((prev) => ({
                         room_id: roomData.room_id,
                         members: roomData.members,
                         queue: roomData.queue,
                         current_song: roomData.current_song,
                         // FIXED: Preserve current_time if song is the same and currently playing
-                        playback_state: prev?.current_song?.id === roomData.current_song?.id && prev?.playback_state.is_playing
-                            ? {
-                                ...roomData.playback_state,
-                                current_time: prev.playback_state.current_time // Keep current progress
-                            }
-                            : roomData.playback_state,
-                        active_users: roomData.active_users || 0
+                        playback_state:
+                            prev?.current_song?.id === roomData.current_song?.id && prev?.playback_state.is_playing
+                                ? {
+                                    ...roomData.playback_state,
+                                    current_time: prev.playback_state.current_time, // Keep current progress
+                                }
+                                : roomData.playback_state,
+                        active_users: roomData.active_users || 0,
                     }))
 
                     if (roomData.current_song && audioRef.current) {
@@ -185,8 +186,8 @@ export default function RoomPage() {
                                     ...prev.playback_state,
                                     current_time: 0,
                                     // FIXED: Set is_playing to false when no current song
-                                    is_playing: data.data.current_song ? prev.playback_state.is_playing : false
-                                }
+                                    is_playing: data.data.current_song ? prev.playback_state.is_playing : false,
+                                },
                             }
                             : null,
                     )
@@ -219,7 +220,7 @@ export default function RoomPage() {
 
                 case "SONG_ADDED":
                     setRoom((prev) => {
-                        if (!prev) return null;
+                        if (!prev) return null
 
                         return {
                             ...prev,
@@ -234,7 +235,7 @@ export default function RoomPage() {
                         prev
                             ? {
                                 ...prev,
-                                queue: prev.queue.filter(song => song.id !== data.data.song_id),
+                                queue: prev.queue.filter((song) => song.id !== data.data.song_id),
                             }
                             : null,
                     )
@@ -259,8 +260,8 @@ export default function RoomPage() {
                                 playback_state: {
                                     ...prev.playback_state,
                                     is_playing: true,
-                                    current_time: data.data.current_time || prev.playback_state.current_time
-                                }
+                                    current_time: data.data.current_time || prev.playback_state.current_time,
+                                },
                             }
                             : null,
                     )
@@ -293,10 +294,14 @@ export default function RoomPage() {
 
                     // FIXED: Only sync audio if there's a significant time difference or if this is from a skip
                     // Don't interfere with user's play/pause actions
-                    if (audioRef.current && newCurrentTime !== undefined) {
-                        // Only sync time if there's a significant difference (more than 2 seconds)
-                        if (Math.abs(audioRef.current.currentTime - newCurrentTime) > 2) {
-                            audioRef.current.currentTime = newCurrentTime
+                    if (audioRef.current) {
+                        // Check if audioRef.current exists
+                        audioRef.current.pause() // Explicitly pause the audio element
+                        if (newCurrentTime !== undefined) {
+                            // Only sync time if there's a significant difference (more than 2 seconds)
+                            if (Math.abs(audioRef.current.currentTime - newCurrentTime) > 2) {
+                                audioRef.current.currentTime = newCurrentTime
+                            }
                         }
                     }
                     break
@@ -308,8 +313,8 @@ export default function RoomPage() {
                                 ...prev,
                                 playback_state: {
                                     ...prev.playback_state,
-                                    current_time: data.data.current_time
-                                }
+                                    current_time: data.data.current_time,
+                                },
                             }
                             : null,
                     )
@@ -325,14 +330,14 @@ export default function RoomPage() {
                             ? {
                                 ...prev,
                                 members: [
-                                    ...prev.members.filter(m => m.user_id !== data.data.user_id),
+                                    ...prev.members.filter((m) => m.user_id !== data.data.user_id),
                                     {
                                         user_id: data.data.user_id,
                                         user_name: data.data.user_name,
-                                        joined_at: data.data.timestamp
-                                    }
+                                        joined_at: data.data.timestamp,
+                                    },
                                 ],
-                                active_users: prev.active_users + 1
+                                active_users: prev.active_users + 1,
                             }
                             : null,
                     )
@@ -343,8 +348,8 @@ export default function RoomPage() {
                         prev
                             ? {
                                 ...prev,
-                                members: prev.members.filter(m => m.user_id !== data.data.user_id),
-                                active_users: Math.max(0, prev.active_users - 1)
+                                members: prev.members.filter((m) => m.user_id !== data.data.user_id),
+                                active_users: Math.max(0, prev.active_users - 1),
                             }
                             : null,
                     )
@@ -355,7 +360,7 @@ export default function RoomPage() {
                         prev
                             ? {
                                 ...prev,
-                                active_users: data.data.active_users
+                                active_users: data.data.active_users,
                             }
                             : null,
                     )
