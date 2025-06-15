@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, TextMessage, \
-    ReplyMessageRequest, FlexMessage, FlexContainer
+    ReplyMessageRequest, FlexMessage, FlexContainer, RichMenuRequest, RichMenuBounds, URIAction, \
+    RichMenuArea, MessageAction, MessagingApiBlob
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
 
 import utilities as utils
@@ -81,6 +82,7 @@ def estimate_postback_length(video_id: str, title: str, artist: str, duration: s
 
 
 # ===== Call Internal Endpoints =====
+
 def create_room_via_api(user_id: str, user_name: str):
     """Create a room via internal API call."""
     try:
@@ -323,10 +325,61 @@ def handle_message(event):
         if message_received == "離開房間":
             if user_id in user_rooms:
                 del user_rooms[user_id]
+                remove_rich_menu_from_user(user_id)
                 reply_message = TextMessage(text="已離開房間！")
             else:
                 reply_message = TextMessage(text="您目前不在任何房間中。")
 
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[reply_message]))
+            return
+
+        # Handle join room command
+        if "房間代碼：" in message_received:
+            if user_id in user_rooms:
+                reply_message = TextMessage(
+                    text="您已經在房間中！請先輸入「離開房間」來離開目前的房間。")
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[reply_message]))
+                return
+            try:
+                # Extract room ID from the message, it will be only 6 characters long
+                room_id = message_received.split("房間代碼：")[-1].strip()[:6]
+            except IndexError:
+                reply_message = TextMessage(text="無效的房間代碼格式！")
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[reply_message]))
+                return
+
+            user_name = line_bot_api.get_profile(user_id).display_name
+            try:
+                response = requests.post(
+                    f"http://localhost:{config['api_endpoints_port']}/api/room/join",
+                    json={
+                        "room_id": room_id,
+                        "user_id": user_id,
+                        "user_name": user_name
+                    }
+                )
+                if response.status_code == 200:
+                    create_rich_menu_for_user(user_id, room_id)
+                    user_rooms[user_id] = room_id  # Track user's room
+                    reply_message = TextMessage(
+                        text=f"房間加入成功！🎉\n" \
+                             f"現在您可以直接在此聊天室搜尋和新增歌曲了！點擊下方的區域進入網頁播放器，隨時插歌" \
+                             f"或是刪除不想要的歌曲～\n\n" \
+                             f"🎵 想邀請朋友一起聽歌？\n" \
+                             f"您現在可以直接分享此訊息給朋友，他們只要將此訊息轉發給本官方帳號，" \
+                             f"就能自動加入您的房間與一起同樂！\n\n" \
+                             f"房間代碼：{room_id}\n" \
+                             f"🎶 一起來創造美好的音樂時光！")
+                else:
+                    reply_message = TextMessage(
+                        text="房間不存在或加入失敗，請檢查房間代碼是否正確。")
+
+            except Exception as e:
+                print(f"Error joining room: {e}")
+                reply_message = TextMessage(text="加入房間時發生錯誤，請稍後再試。")
             line_bot_api.reply_message(ReplyMessageRequest(
                 reply_token=event.reply_token, messages=[reply_message]))
             return
@@ -336,17 +389,24 @@ def handle_message(event):
             # Check if user is already in a room
             if user_id in user_rooms:
                 reply_message = TextMessage(
-                    text="您已經在房間中！請先輸入「離開房間」來離開目前的房間。")
+                    text="您已經在房間中！請先輸入「離開房間」來離開目前的房間")
             else:
                 user_name = line_bot_api.get_profile(user_id).display_name
                 room_data = create_room_via_api(user_id, user_name)
 
                 if room_data:
                     room_id = room_data['room_id']
+                    create_rich_menu_for_user(user_id, room_id)
                     user_rooms[user_id] = room_id  # Track user's room
-                    room_url = f"http://localhost:3000/room/{room_id}?userId={user_id}"
                     reply_message = TextMessage(
-                        text=f"房間創建成功！\n{room_url}\n\n現在您可以直接在此聊天室搜尋和新增歌曲了！")
+                        text=f"房間創建成功！🎉\n" \
+                             f"現在您可以直接在此聊天室搜尋和新增歌曲了！點擊下方的區域進入網頁播放器，隨時插歌" \
+                             f"或是刪除不想要的歌曲～\n\n" \
+                             f"🎵 想邀請朋友一起聽歌？\n" \
+                             f"您現在可以直接分享此訊息給朋友，他們只要將此訊息轉發給本官方帳號，" \
+                             f"就能自動加入您的房間與一起同樂！\n\n" \
+                             f"房間代碼：{room_id}\n" \
+                             f"🎶 一起來創造美好的音樂時光！")
                 else:
                     reply_message = TextMessage(text="建立房間時發生錯誤，請稍後再試。")
 
@@ -495,6 +555,53 @@ def handle_postback(event):
                     reply_message = TextMessage(text="載入時發生錯誤！")
                     line_bot_api.reply_message(ReplyMessageRequest(
                         reply_token=event.reply_token, messages=[reply_message]))
+
+
+# ===== Rich Menu Manager =====
+
+
+def create_rich_menu_for_user(user_id: str, room_id: str):
+    """Create and assign rich menu for user in room."""
+    with ApiClient(configuration) as api_client:
+        line_bot_api = MessagingApi(api_client)
+        line_bot_blob_api = MessagingApiBlob(api_client)
+
+        room_url = f"http://localhost:3000/room/{room_id}?userId={user_id}"
+
+        # Define rich menu request
+        rich_menu = RichMenuRequest(
+            size=RichMenuBounds(width=2500, height=843),
+            selected=True,
+            name="CarTunes Rich Menu",
+            chat_bar_text="音樂播放器",
+            areas=[
+                # Main area - opens website (covers most of the image)
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=0, y=0, width=2100, height=843),
+                    action=URIAction(uri=room_url)
+                ),
+                # Leave room button (right corner)
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=2100, y=0, width=400, height=843),
+                    action=MessageAction(text="離開房間")
+                )
+            ]
+        )
+        rich_menu_id = line_bot_api.create_rich_menu(rich_menu_request=rich_menu).rich_menu_id
+        with open('images/rich_menu.png', 'rb') as image:
+            line_bot_blob_api.set_rich_menu_image(
+                rich_menu_id=rich_menu_id,
+                body=bytearray(image.read()),
+                _headers={'Content-Type': 'image/png'}
+            )
+        line_bot_api.link_rich_menu_id_to_user(user_id, rich_menu_id)
+
+
+def remove_rich_menu_from_user(user_id: str):
+    """Remove rich menu from user when they leave room."""
+    with ApiClient(configuration) as api_client:
+        line_bot_api = MessagingApi(api_client)
+        line_bot_api.unlink_rich_menu_id_from_user(user_id)
 
 
 if __name__ == '__main__':
