@@ -1,3 +1,4 @@
+import re
 import sys
 from os.path import exists
 
@@ -57,3 +58,41 @@ def read_config():
             "An error occurred while reading config.yml, please check if the file is corrected filled.\n"
             "If the problem can't be solved, consider delete config.yml and restart the program.\n")
         sys.exit()
+
+
+def convert_duration_to_seconds(duration_str: str) -> int | None:
+    """Convert duration string like '3:47' to seconds."""
+    if not duration_str or duration_str == 'N/A':
+        return None
+
+    try:
+        # Handle formats like "3:47" or "1:23:45"
+        parts = duration_str.split(':')
+        if len(parts) == 2:  # MM:SS
+            minutes, seconds = map(int, parts)
+            return minutes * 60 + seconds
+        elif len(parts) == 3:  # HH:MM:SS
+            hours, minutes, seconds = map(int, parts)
+            return hours * 3600 + minutes * 60 + seconds
+        else:
+            return None
+    except (ValueError, TypeError):
+        return None
+
+
+def extract_video_id_from_url(url: str) -> str | None:
+    """Extract video ID from YouTube URL."""
+    # Pattern for https://www.youtube.com/watch?v=VIDEO_ID
+    pattern1 = r'https://www\.youtube\.com/watch\?v=([a-zA-Z0-9_-]+)'
+    # Pattern for https://youtu.be/VIDEO_ID
+    pattern2 = r'https://youtu\.be/([a-zA-Z0-9_-]+)'
+
+    match = re.search(pattern1, url)
+    if match:
+        return match.group(1)
+
+    match = re.search(pattern2, url)
+    if match:
+        return match.group(1)
+
+    return None

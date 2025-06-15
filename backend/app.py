@@ -449,12 +449,18 @@ async def leave_room(room_id: str, user_id: str = Query(...)):
 
 @app.post("/api/room/{room_id}/queue/add", response_model=AddSongResponse)
 async def add_song_to_queue(
+        request_object: Request,
         room_id: str,
         request: AddSongRequest,
         user_id: str = Query(...),
         user_name: str = Query("User")
 ):
     """Add a song to the queue"""
+    # Only allow requests from localhost
+    client_ip = request_object.client.host
+    if client_ip != "127.0.0.1":
+        raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
+
     room = room_manager.get_room(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -471,13 +477,13 @@ async def add_song_to_queue(
         'duration': request.duration,
         'thumbnail': request.thumbnail
     }
-
     if not request.title:
         audio_info = get_audio_stream_info(request.video_id)
         if not audio_info:
             raise HTTPException(status_code=400, detail="Invalid video ID or video not available")
 
         song_data['title'] = audio_info.get('title', 'Unknown')
+        song_data['artist'] = audio_info.get('uploader', 'Unknown')
         song_data['duration'] = audio_info.get('duration', 0)
         song_data['thumbnail'] = audio_info.get('thumbnail', '')
 

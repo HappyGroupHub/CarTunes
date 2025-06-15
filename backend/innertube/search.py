@@ -215,7 +215,9 @@ def search_youtube(query: str) -> list:
     :rtype: List
     """
     data = _search_youtube(query)
-    return parse_youtube_results(data)
+    results = parse_youtube_results(data)
+    filtered_results = [item for item in results if item.get('type') not in ('short', 'live')]
+    return filtered_results
 
 
 def search_youtube_music(query: str) -> list:

@@ -1,14 +1,18 @@
+import time
+import urllib
+from typing import Dict, Any
+
 import requests
-from fastapi import FastAPI
-from fastapi import Request, HTTPException
+from fastapi import Request, HTTPException, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, TextMessage, \
-    ReplyMessageRequest
-from linebot.v3.webhooks import MessageEvent, TextMessageContent
+    ReplyMessageRequest, FlexMessage, FlexContainer
+from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
 
 import utilities as utils
+from innertube.search import search_youtube
 from room_manager import RoomManager
 
 room_manager = RoomManager()
@@ -20,13 +24,270 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["POST"],
     allow_headers=["*"],
 )
 
 config = utils.read_config()
 configuration = Configuration(access_token=config['line_channel_access_token'])
 handler = WebhookHandler(config['line_channel_secret'])
+
+# Dictionary to track user rooms - key: user_id, value: room_id
+user_rooms = {}
+
+# Cache for storing search results when postback data is too long
+# Key: video_id, Value: search result data
+postback_cache: Dict[str, Dict[str, Any]] = {}
+
+
+# ===== Song Keyword Search Cache =====
+
+def cleanup_old_cache_entries():
+    """Remove cache entries older than 30 minutes"""
+    current_time = time.time()
+    keys_to_remove = []
+
+    for video_id, data in postback_cache.items():
+        if current_time - data.get('cached_at', 0) > 1800:  # 30 minutes
+            keys_to_remove.append(video_id)
+
+    for key in keys_to_remove:
+        del postback_cache[key]
+
+
+def store_in_cache(video_id: str, result: dict):
+    """Store search result in cache"""
+    cleanup_old_cache_entries()
+    postback_cache[video_id] = {
+        **result,
+        'cached_at': time.time()
+    }
+
+
+def get_from_cache(video_id: str) -> Dict[str, Any]:
+    """Retrieve cached search result"""
+    return postback_cache.get(video_id, {})
+
+
+def estimate_postback_length(video_id: str, title: str, artist: str, duration: str,
+                             thumbnail: str) -> int:
+    """Estimate the length of postback data"""
+    postback_data = (f"add_song:{video_id}"
+                     f"|/title:{title}"
+                     f"|/artist:{artist}"
+                     f"|/duration:{duration}"
+                     f"|/thumbnail:{thumbnail}")
+    return len(postback_data)
+
+
+# ===== Call Internal Endpoints =====
+def create_room_via_api(user_id: str, user_name: str):
+    """Create a room via internal API call."""
+    try:
+        response = requests.post(
+            f"http://localhost:{config['api_endpoints_port']}/api/room/create",
+            params={"user_id": user_id, "user_name": user_name}
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Failed to create room: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Error creating room: {e}")
+        return None
+
+
+def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name: str, title: str = None,
+                     artist: str = None, duration: str = None, thumbnail: str = None):
+    """Add song to queue via internal API call."""
+    try:
+        duration_seconds = utils.convert_duration_to_seconds(duration) if duration else None
+        response = requests.post(
+            f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/queue/add",
+            json={
+                "video_id": video_id,
+                "title": title,
+                "artist": artist,
+                "duration": duration_seconds,
+                "thumbnail": thumbnail
+            },
+            params={"user_id": user_id, "user_name": user_name}
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Failed to add song: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Error adding song: {e}")
+        return None
+
+
+# ===== Handel Message Event =====
+
+def create_search_results_carousel(search_results: list, user_input: str, page: int = 0):
+    """Create LINE Flex carousel for search results."""
+    start_index = page * 4
+    end_index = start_index + 4
+    current_results = search_results[start_index:end_index]
+
+    bubbles = []
+
+    # Add result bubbles
+    for result in current_results:
+        video_id = result.get('id')
+        title = result.get('title', 'Unknown Title')
+        artist = result.get('channel', 'Unknown')
+        duration = result.get('duration', 'N/A')
+        thumbnail = result.get('thumbnail', '')
+
+        # Estimate postback data length
+        estimated_length = estimate_postback_length(video_id, title, artist, duration, thumbnail)
+
+        # Use cache if postback data would be too long
+        if estimated_length > 300:
+            store_in_cache(video_id, result)
+            postback_data = f"add_song_cached:{video_id}"
+        else:
+            postback_data = (f"add_song:{video_id}"
+                             f"|/title:{title}"
+                             f"|/artist:{artist}"
+                             f"|/duration:{duration}"
+                             f"|/thumbnail:{thumbnail}")
+
+        bubble = {
+            "type": "bubble",
+            "size": "kilo",
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "image",
+                        "url": thumbnail or 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg',
+                        "size": "full",
+                        "aspectMode": "cover",
+                        "aspectRatio": "320:213"
+                    }
+                ],
+                "paddingAll": "0px"
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": title,
+                        "weight": "bold",
+                        "size": "sm",
+                        "wrap": True,
+                        "maxLines": 2
+                    },
+                    {
+                        "type": "text",
+                        "text": artist,
+                        "size": "xs",
+                        "color": "#aaaaaa",
+                        "wrap": True,
+                        "maxLines": 1
+                    },
+                    {
+                        "type": "text",
+                        "text": f"⏱️ {duration}",
+                        "size": "xs",
+                        "color": "#666666"
+                    }
+                ],
+                "spacing": "sm",
+                "paddingAll": "13px"
+            },
+            "footer": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "action": {
+                            "type": "postback",
+                            "label": "新增歌曲",
+                            "data": postback_data
+                        }
+                    }
+                ],
+                "paddingAll": "13px"
+            }
+        }
+        bubbles.append(bubble)
+
+    # Add navigation bubble
+    navigation_contents = []
+
+    # Show next page button if there are more results
+    if end_index < len(search_results):
+        navigation_contents.append({
+            "type": "button",
+            "style": "secondary",
+            "action": {
+                "type": "postback",
+                "label": "下一頁",
+                "data": f"next_page:{user_input}:{page + 1}"
+            }
+        })
+
+    # Always show search on YouTube button with proper URL encoding
+    encoded_query = urllib.parse.quote_plus(user_input)
+    search_url = f"https://www.youtube.com/results?search_query={encoded_query}"
+
+    navigation_contents.append({
+        "type": "button",
+        "style": "link",
+        "action": {
+            "type": "uri",
+            "label": "自行搜尋",
+            "uri": search_url
+        }
+    })
+
+    if navigation_contents:
+        nav_bubble = {
+            "type": "bubble",
+            "size": "kilo",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                                {
+                                    "type": "text",
+                                    "text": "更多選項",
+                                    "weight": "bold",
+                                    "size": "md",
+                                    "align": "center"
+                                },
+                                {
+                                    "type": "separator",
+                                    "margin": "md"
+                                }
+                            ] + [
+                                {
+                                    "type": "button",
+                                    **button
+                                } for button in navigation_contents
+                            ],
+                "spacing": "md",
+                "paddingAll": "20px"
+            }
+        }
+        bubbles.append(nav_bubble)
+
+    carousel = {
+        "type": "carousel",
+        "contents": bubbles
+    }
+
+    return FlexMessage(alt_text="搜尋結果", contents=FlexContainer.from_dict(carousel))
 
 
 @app.post("/callback")
@@ -49,23 +310,6 @@ async def callback(request: Request):
     return 'OK'
 
 
-def create_room_via_api(user_id: str, user_name: str):
-    """Create a room via internal API call."""
-    try:
-        response = requests.post(
-            f"http://localhost:{config['api_endpoints_port']}/api/room/create",
-            params={"user_id": user_id, "user_name": user_name}
-        )
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"Failed to create room: {response.status_code}")
-            return None
-    except Exception as e:
-        print(f"Error creating room: {e}")
-        return None
-
-
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     with ApiClient(configuration) as api_client:
@@ -75,20 +319,182 @@ def handle_message(event):
         message_received = event.message.text
         user_id = event.source.user_id
 
-        # Handle commands messages
-        if message_received == "創建房間":
-            user_name = line_bot_api.get_profile(user_id).display_name
-            room_data = create_room_via_api(user_id, user_name)
-
-            if room_data:
-                room_id = room_data['room_id']
-                room_url = f"http://localhost:3000/room/{room_id}?userId={user_id}"
-                reply_message = TextMessage(text=room_url)
+        # Handle leave room command
+        if message_received == "離開房間":
+            if user_id in user_rooms:
+                del user_rooms[user_id]
+                reply_message = TextMessage(text="已離開房間！")
             else:
-                reply_message = TextMessage(text="建立房間時發生錯誤，請稍後再試。")
+                reply_message = TextMessage(text="您目前不在任何房間中。")
 
             line_bot_api.reply_message(ReplyMessageRequest(
                 reply_token=event.reply_token, messages=[reply_message]))
+            return
+
+        # Handle create room command
+        if message_received == "創建房間":
+            # Check if user is already in a room
+            if user_id in user_rooms:
+                reply_message = TextMessage(
+                    text="您已經在房間中！請先輸入「離開房間」來離開目前的房間。")
+            else:
+                user_name = line_bot_api.get_profile(user_id).display_name
+                room_data = create_room_via_api(user_id, user_name)
+
+                if room_data:
+                    room_id = room_data['room_id']
+                    user_rooms[user_id] = room_id  # Track user's room
+                    room_url = f"http://localhost:3000/room/{room_id}?userId={user_id}"
+                    reply_message = TextMessage(
+                        text=f"房間創建成功！\n{room_url}\n\n現在您可以直接在此聊天室搜尋和新增歌曲了！")
+                else:
+                    reply_message = TextMessage(text="建立房間時發生錯誤，請稍後再試。")
+
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[reply_message]))
+            return
+
+        # If user is not in a room, ask them to create one first
+        if user_id not in user_rooms:
+            reply_message = TextMessage(text="請先輸入「創建房間」來建立音樂房間！")
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[reply_message]))
+            return
+
+        # Handle music search/add commands
+        # Check if it's a direct YouTube URL
+        video_id = utils.extract_video_id_from_url(message_received)
+        if video_id:
+            # If it's a direct YouTube URL - add to queue immediately
+            room_id = user_rooms[user_id]
+            user_name = line_bot_api.get_profile(user_id).display_name
+            result = add_song_via_api(room_id, video_id, user_id, user_name)
+
+            if result:
+                reply_message = TextMessage(
+                    text=f"✅ 歌曲已新增至播放佇列！\n🎵 {result['song']['title']}")
+            else:
+                reply_message = TextMessage(text="❌ 新增歌曲失敗，請檢查連結是否正確！")
+
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[reply_message]))
+        else:  # Keyword search
+            if len(message_received) > 50:
+                reply_message = TextMessage(text="搜尋關鍵字過長，請重新輸入！")
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[reply_message]))
+                return
+
+            try:
+                search_results = search_youtube(message_received)
+                if search_results:
+                    # Create and send carousel message
+                    carousel_message = create_search_results_carousel(search_results,
+                                                                      message_received)
+                    line_bot_api.reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token, messages=[carousel_message]))
+                else:
+                    reply_message = TextMessage(text="找不到相關歌曲，請嘗試其他關鍵字！")
+                    line_bot_api.reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token, messages=[reply_message]))
+            except Exception as e:
+                print(f"Search error: {e}")
+                reply_message = TextMessage(text="搜尋時發生錯誤，請稍後再試！")
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[reply_message]))
+
+
+@handler.add(PostbackEvent)
+def handle_postback(event):
+    with ApiClient(configuration) as api_client:
+        line_bot_api = MessagingApi(api_client)
+        postback_data = event.postback.data
+        user_id = event.source.user_id
+
+        # Check if user is in a room
+        if user_id not in user_rooms:
+            reply_message = TextMessage(text="請先創建房間才能新增歌曲！")
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[reply_message]))
+            return
+
+        room_id = user_rooms[user_id]
+        user_name = line_bot_api.get_profile(user_id).display_name
+
+        if postback_data.startswith("add_song:"):
+            # Extract video ID and add song
+            data_parts = postback_data.split("|/")
+            video_id = data_parts[0].split(":", 1)[1]
+            title = artist = duration = thumbnail = None
+            for part in data_parts[1:]:
+                if part.startswith("title:"):
+                    title = part[6:]
+                elif part.startswith("artist:"):
+                    artist = part[7:]
+                elif part.startswith("duration:"):
+                    duration = part[9:]
+                elif part.startswith("thumbnail:"):
+                    thumbnail = part[10:]
+            result = add_song_via_api(room_id, video_id, user_id, user_name, title=title,
+                                      artist=artist, duration=duration, thumbnail=thumbnail)
+
+            if result:
+                reply_message = TextMessage(
+                    text=f"✅ 歌曲已新增至播放佇列！\n🎵 {result['song']['title']}")
+            else:
+                reply_message = TextMessage(text="❌ 新增歌曲失敗，請稍後再試！")
+
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[reply_message]))
+
+        elif postback_data.startswith("add_song_cached:"):
+            # Extract video ID and get data from cache
+            video_id = postback_data.split(":", 1)[1]
+            cached_data = get_from_cache(video_id)
+
+            if cached_data:
+                title = cached_data.get('title', 'Unknown Title')
+                artist = cached_data.get('channel', 'Unknown')
+                duration = cached_data.get('duration', 'N/A')
+                thumbnail = cached_data.get('thumbnail', '')
+
+                result = add_song_via_api(room_id, video_id, user_id, user_name,
+                                          title=title, artist=artist, duration=duration,
+                                          thumbnail=thumbnail)
+
+                if result:
+                    reply_message = TextMessage(text=f"✅ 歌曲已新增至播放佇列！\n🎵 {title}")
+                else:
+                    reply_message = TextMessage(text="❌ 新增歌曲失敗，請稍後再試！")
+            else:
+                reply_message = TextMessage(text="❌ 歌曲資料已過期，請重新搜尋。")
+
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[reply_message]))
+
+        elif postback_data.startswith("next_page:"):
+            # Handle pagination
+            parts = postback_data.split(":", 2)
+            if len(parts) == 3:
+                user_input = parts[1]
+                page = int(parts[2])
+
+                try:
+                    search_results = search_youtube(user_input)
+                    if search_results:
+                        carousel_message = create_search_results_carousel(search_results,
+                                                                          user_input, page)
+                        line_bot_api.reply_message(ReplyMessageRequest(
+                            reply_token=event.reply_token, messages=[carousel_message]))
+                    else:
+                        reply_message = TextMessage(text="找不到更多結果囉！")
+                        line_bot_api.reply_message(ReplyMessageRequest(
+                            reply_token=event.reply_token, messages=[reply_message]))
+                except Exception as e:
+                    print(f"Pagination error: {e}")
+                    reply_message = TextMessage(text="載入時發生錯誤！")
+                    line_bot_api.reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token, messages=[reply_message]))
 
 
 if __name__ == '__main__':
