@@ -19,6 +19,8 @@ import {
     AlertCircle,
     Loader2,
     Download,
+    VolumeX,
+    Volume2,
 } from "lucide-react"
 import {useWebSocket} from "@/hooks/use-websocket"
 import {formatTime} from "@/lib/utils"
@@ -73,6 +75,11 @@ export default function RoomPage() {
     const [audioError, setAudioError] = useState<string | null>(null)
     const [songDownloading, setSongDownloading] = useState(false)
     const [hasUserInteractedWithPlayButton, setHasUserInteractedWithPlayButton] = useState(false)
+
+    const [isMuted, setIsMuted] = useState(false)
+    const [muteMessage, setMuteMessage] = useState<string | null>(null)
+    const [messageOpacity, setMessageOpacity] = useState(1)
+    const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
     const audioRef = useRef<HTMLAudioElement>(null)
     const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -698,6 +705,34 @@ export default function RoomPage() {
         router.push("/")
     }
 
+    const toggleMute = () => {
+        if (audioRef.current) {
+            const newState = !isMuted
+            audioRef.current.muted = newState
+            setIsMuted(newState)
+
+            // Clear any existing timeout
+            if (messageTimeoutRef.current) {
+                clearTimeout(messageTimeoutRef.current)
+            }
+
+            const message = newState ? "音樂已在此裝置靜音" : "開始在裝置播放音樂"
+            setMuteMessage(message)
+            setMessageOpacity(1) // Ensure message is fully visible when it appears
+
+            // Set timeout to start fading after 2.5 seconds
+            messageTimeoutRef.current = setTimeout(() => {
+                setMessageOpacity(0)
+            }, 2500)
+
+            // Set timeout to clear message completely after 3 seconds (0.5s fade + 2.5s delay)
+            messageTimeoutRef.current = setTimeout(() => {
+                setMuteMessage(null)
+                setMessageOpacity(1) // Reset opacity for next message
+            }, 3000)
+        }
+    }
+
     if (isLoading) {
         return (
             <div
@@ -734,6 +769,25 @@ export default function RoomPage() {
                     <div className="flex items-center space-x-2">
                         <Music className="h-6 w-6 text-white" strokeWidth={2}/>
                         <span className="text-white font-semibold">房間 {roomId}</span>
+                        {/* Mute Button */}
+                        <Button
+                            onClick={toggleMute}
+                            size="icon"
+                            variant="ghost"
+                            className={`${isMuted ? "text-red-500 hover:bg-red-500/20" : "text-white hover:bg-white/20"} w-8 h-8`}
+                            aria-label={isMuted ? "Unmute audio" : "Mute audio"}
+                        >
+                            {isMuted ? <VolumeX className="h-4 w-4"/> : <Volume2 className="h-4 w-4"/>}
+                        </Button>
+                        {/* Mute Message */}
+                        {muteMessage && (
+                            <span
+                                className={`${isMuted ? "text-red-500" : "text-white"} text-sm ml-2 transition-opacity duration-500 ease-out`}
+                                style={{opacity: messageOpacity}}
+                            >
+        {muteMessage}
+    </span>
+                        )}
                     </div>
                     <div className="flex items-center space-x-2">
                         {isConnected ? (
