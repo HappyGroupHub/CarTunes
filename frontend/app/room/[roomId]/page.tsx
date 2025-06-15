@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import {useEffect, useState, useRef, useCallback} from "react"
 import {useParams, useSearchParams, useRouter} from "next/navigation"
 import {Button} from "@/components/ui/button"
@@ -21,6 +23,7 @@ import {
     Download,
     VolumeX,
     Volume2,
+    ArrowUpNarrowWide,
 } from "lucide-react"
 import {useWebSocket} from "@/hooks/use-websocket"
 import {formatTime} from "@/lib/utils"
@@ -90,6 +93,12 @@ export default function RoomPage() {
     const audioErrorRef = useRef<string | null>(null)
     const songDownloadingRef = useRef<boolean>(false)
     const hasUserInteractedWithPlayButtonRef = useRef<boolean>(false)
+
+    // State for swipe-to-delete
+    const [swipedSongId, setSwipedSongId] = useState<string | null>(null)
+    const touchStartX = useRef(0)
+    const touchCurrentX = useRef(0)
+    const swipeThreshold = 50 // Pixels to swipe to reveal delete button
 
     useEffect(() => {
         roomRef.current = room
@@ -655,8 +664,32 @@ export default function RoomPage() {
             await fetch(`${API_ENDPOINTS.REMOVE_SONG(roomId, songId)}?user_id=${userId}`, {
                 method: "DELETE",
             })
+            setSwipedSongId(null) // Close swipe after deletion
         } catch (err) {
             console.error("Failed to remove song:", err)
+        }
+    }
+
+    async function bringSongToTop(songId: string) {
+        if (!room) return
+        const currentQueue = room.queue
+        const songToMove = currentQueue.find((s) => s.id === songId)
+        if (!songToMove) return
+
+        const newQueue = [songToMove, ...currentQueue.filter((s) => s.id !== songId)]
+        const newSongIds = newQueue.map((s) => s.id)
+
+        try {
+            await fetch(`${API_ENDPOINTS.REORDER_QUEUE(roomId)}?user_id=${userId}`, {
+                method: "PUT",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({song_ids: newSongIds}),
+            })
+            // Optimistic update or wait for WebSocket ROOM_STATE/QUEUE_REORDERED
+            setRoom((prev) => (prev ? {...prev, queue: newQueue} : null))
+        } catch (err) {
+            console.error("Failed to bring song to top:", err)
+            // Revert optimistic update if needed
         }
     }
 
@@ -687,7 +720,7 @@ export default function RoomPage() {
                 clearInterval(progressIntervalRef.current)
             }
         }
-    }, [room])
+    }, [room?.current_song?.id, room?.playback_state.is_playing])
 
     useEffect(() => {
         return () => {
@@ -730,6 +763,75 @@ export default function RoomPage() {
                 setMuteMessage(null)
                 setMessageOpacity(1) // Reset opacity for next message
             }, 3000)
+        }
+    }
+
+    // Swipe handlers
+    const handleTouchStart = (e: React.TouchEvent, songId: string) => {
+        setSwipedSongId(null) // Close any currently swiped item
+        touchStartX.current = e.touches[0].clientX
+        touchCurrentX.current = e.touches[0].clientX
+    }
+
+    const handleTouchMove = (e: React.TouchEvent, songId: string) => {
+        touchCurrentX.current = e.touches[0].clientX
+        const deltaX = touchCurrentX.current - touchStartX.current
+
+        if (deltaX < -swipeThreshold) {
+            // Swiping left
+            setSwipedSongId(songId)
+        } else if (deltaX > swipeThreshold) {
+            // Swiping right
+            setSwipedSongId(null)
+        }
+    }
+
+    const handleTouchEnd = (songId: string) => {
+        const deltaX = touchCurrentX.current - touchStartX.current
+        if (Math.abs(deltaX) < swipeThreshold) {
+            setSwipedSongId(null) // Close if not swiped enough
+        }
+        touchStartX.current = 0 // Reset for next interaction
+        touchCurrentX.current = 0 // Reset currentX as well
+    }
+
+    // Mouse handlers for desktop (simulating touch)
+    const handleMouseDown = (e: React.MouseEvent, songId: string) => {
+        setSwipedSongId(null) // Close any currently swiped item
+        touchStartX.current = e.clientX
+        touchCurrentX.current = e.clientX
+    }
+
+    const handleMouseMove = (e: React.MouseEvent, songId: string) => {
+        if (touchStartX.current !== 0) {
+            // Only if drag started
+            touchCurrentX.current = e.clientX
+            const deltaX = touchCurrentX.current - touchStartX.current
+            if (deltaX < -swipeThreshold) {
+                setSwipedSongId(songId)
+            } else if (deltaX > swipeThreshold) {
+                setSwipedSongId(null)
+            }
+        }
+    }
+
+    const handleMouseUp = () => {
+        if (touchStartX.current !== 0) {
+            const deltaX = touchCurrentX.current - touchStartX.current
+            if (Math.abs(deltaX) < swipeThreshold) {
+                setSwipedSongId(null)
+            }
+            touchStartX.current = 0 // Reset for next drag
+            touchCurrentX.current = 0 // Reset currentX as well
+        }
+    }
+
+    const handleMouseLeave = () => {
+        // Reset if mouse leaves while dragging
+        if (touchStartX.current !== 0) {
+            setSwipedSongId(null)
+            touchStartX.current = 0
+            touchCurrentX.current = 0
         }
     }
 
@@ -785,8 +887,8 @@ export default function RoomPage() {
                                 className={`${isMuted ? "text-red-500" : "text-white"} text-sm ml-2 transition-opacity duration-500 ease-out`}
                                 style={{opacity: messageOpacity}}
                             >
-        {muteMessage}
-    </span>
+                {muteMessage}
+              </span>
                         )}
                     </div>
                     <div className="flex items-center space-x-2">
@@ -912,32 +1014,77 @@ export default function RoomPage() {
                         {room.queue.length > 0 ? (
                             <div className="space-y-3">
                                 {room.queue.map((song, index) => (
-                                    <div key={song.id}
-                                         className="flex items-center space-x-2 p-3 bg-white/5 rounded-lg">
-                                        <div className="text-white/60 text-sm font-mono w-6">{index + 1}</div>
-                                        {song.thumbnail && (
-                                            <img
-                                                src={song.thumbnail || "/placeholder.svg"}
-                                                alt={song.title}
-                                                className="w-12 h-12 rounded object-cover"
-                                            />
-                                        )}
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-white font-medium truncate">{song.title}</p>
-                                            <div className="flex items-center space-x-2 text-white/60 text-sm">
-                                                <span>{formatTime(song.duration)}</span>
-                                                <span>•</span>
-                                                <span>{song.requester_name}</span>
-                                            </div>
-                                        </div>
-                                        <Button
-                                            onClick={() => removeSong(song.id)}
-                                            size="sm"
-                                            variant="ghost"
-                                            className="text-white/60 hover:text-red-400 hover:bg-red-500/20"
+                                    <div
+                                        key={song.id}
+                                        className="relative overflow-hidden rounded-lg"
+                                        onTouchStart={(e) => handleTouchStart(e, song.id)}
+                                        onTouchMove={(e) => handleTouchMove(e, song.id)}
+                                        onTouchEnd={() => handleTouchEnd(song.id)}
+                                        onMouseDown={(e) => handleMouseDown(e, song.id)}
+                                        onMouseMove={(e) => handleMouseMove(e, song.id)}
+                                        onMouseUp={handleMouseUp}
+                                        onMouseLeave={handleMouseLeave}
+                                    >
+                                        {/* Main song info container */}
+                                        <div
+                                            className={`flex items-center gap-x-2 p-3 bg-white/5 rounded-lg transition-transform duration-300 ease-in-out ${
+                                                swipedSongId === song.id ? "-translate-x-[60px]" : "translate-x-0"
+                                            }`}
                                         >
-                                            <Trash2 className="h-4 w-4" strokeWidth={2}/>
-                                        </Button>
+                                            <div
+                                                className="text-white/60 text-sm font-mono w-2.5 flex-shrink-0">{index + 1}</div>
+                                            {song.thumbnail && (
+                                                <img
+                                                    src={song.thumbnail || "/placeholder.svg"}
+                                                    alt={song.title}
+                                                    className="w-12 h-12 rounded object-cover flex-shrink-0"
+                                                />
+                                            )}
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-white font-medium truncate">{song.title}</p>
+                                                <div className="flex items-center gap-x-1 text-white/60 text-sm">
+                                                    <span>{formatTime(song.duration)}</span>
+                                                    <span>•</span>
+                                                    <span>{song.requester_name}</span>
+                                                </div>
+                                            </div>
+                                            {/* Bring to Top Button */}
+                                            {index !== 0 && ( // Only show if not the first song
+                                                <Button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation() // Prevent swipe interaction
+                                                        bringSongToTop(song.id)
+                                                    }}
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="text-white/60 hover:text-blue-400 hover:bg-blue-500/20 flex-shrink-0 w-7 h-7 p-0"
+                                                    aria-label="Bring song to top"
+                                                >
+                                                    <ArrowUpNarrowWide className="h-4 w-4" strokeWidth={2}/>
+                                                </Button>
+                                            )}
+                                        </div>
+
+                                        {/* Delete button revealed on swipe */}
+                                        <div
+                                            className={`absolute inset-y-0 right-0 flex items-center justify-center bg-red-600 rounded-lg transition-transform duration-300 ease-in-out ${
+                                                swipedSongId === song.id ? "translate-x-0" : "translate-x-full"
+                                            }`}
+                                            style={{width: "60px"}} // Smaller width for the delete area
+                                        >
+                                            <Button
+                                                onClick={(e) => {
+                                                    e.stopPropagation() // Prevent swipe interaction
+                                                    removeSong(song.id)
+                                                }}
+                                                size="icon"
+                                                variant="ghost"
+                                                className="text-white hover:bg-red-700"
+                                                aria-label="Delete song"
+                                            >
+                                                <Trash2 className="h-5 w-5" strokeWidth={2}/>
+                                            </Button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
