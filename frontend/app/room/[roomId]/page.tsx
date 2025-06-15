@@ -11,7 +11,6 @@ import {
     Pause,
     SkipForward,
     Music,
-    Clock,
     User,
     Users,
     Wifi,
@@ -681,7 +680,7 @@ export default function RoomPage() {
                 clearInterval(progressIntervalRef.current)
             }
         }
-    }, [room?.playback_state.is_playing, room?.current_song?.id])
+    }, [room])
 
     useEffect(() => {
         return () => {
@@ -753,88 +752,91 @@ export default function RoomPage() {
             <div className="max-w-md mx-auto p-4 space-y-4">
                 {/* Current Song */}
                 <Card className="bg-white/10 backdrop-blur-sm border-white/20">
-                    <CardContent className="p-6">
+                    <CardContent className="p-3 flex flex-col">
                         {room.current_song ? (
-                            <div className="text-center space-y-4">
-                                {/* Song Info */}
-                                <div>
+                            <>
+                                <div className="flex items-center mb-3">
+                                    {/* Song Thumbnail */}
                                     {room.current_song.thumbnail && (
                                         <img
                                             src={room.current_song.thumbnail || "/placeholder.svg"}
                                             alt={room.current_song.title}
-                                            className="w-32 h-32 mx-auto rounded-lg object-cover mb-4"
+                                            className="w-28 h-28 rounded-lg object-cover mr-4"
                                         />
                                     )}
-                                    <h2 className="text-white font-bold text-lg mb-1">{room.current_song.title}</h2>
-                                    {room.current_song.artist &&
-                                        <p className="text-white/70 mb-2">{room.current_song.artist}</p>}
-                                    <div className="flex items-center justify-center space-x-4 text-white/60 text-sm">
-                                        <div className="flex items-center">
-                                            <User className="h-3 w-3 mr-1" strokeWidth={2}/>
-                                            {room.current_song.requester_name}
-                                        </div>
-                                        <div className="flex items-center">
-                                            <Clock className="h-3 w-3 mr-1" strokeWidth={2}/>
-                                            {formatTime(room.current_song.duration)}
-                                        </div>
-                                    </div>
-
-                                    {/* Audio Status Indicators */}
-                                    {songDownloading && (
-                                        <div className="flex items-center justify-center space-x-2 mt-2 text-blue-400">
-                                            <Download className="h-4 w-4 animate-bounce" strokeWidth={2}/>
-                                            <span className="text-sm">歌曲載入中...</span>
-                                        </div>
-                                    )}
-
-                                    {audioLoading && !songDownloading && (
-                                        <div className="flex items-center justify-center space-x-2 mt-2 text-white/60">
-                                            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2}/>
-                                            <span className="text-sm">音訊載入中...</span>
-                                        </div>
-                                    )}
-
-                                    {audioError && !songDownloading && (
-                                        <div className="flex items-center justify-center space-x-2 mt-2 text-red-400">
-                                            <AlertCircle className="h-4 w-4" strokeWidth={2}/>
-                                            <span className="text-sm">{audioError}</span>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Progress */}
-                                <div className="space-y-2">
-                                    <Progress value={progress} className="h-2"/>
-                                    <div className="flex justify-between text-white/60 text-sm">
-                                        <span>{formatTime(Math.floor(currentTime))}</span>
-                                        <span>{formatTime(room.current_song.duration)}</span>
-                                    </div>
-                                </div>
-
-                                {/* Controls */}
-                                <div className="flex justify-center space-x-4">
-                                    <Button
-                                        onClick={togglePlayback}
-                                        disabled={audioLoading || !!audioError || songDownloading}
-                                        size="lg"
-                                        className="bg-white/20 hover:bg-white/30 text-white rounded-full w-16 h-16 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        {/* Icon logic: Show Play if room is paused OR user hasn't interacted yet. Otherwise, show Pause. */}
-                                        {room.playback_state.is_playing && hasUserInteractedWithPlayButton ? (
-                                            <Pause className="h-8 w-8" strokeWidth={2}/>
-                                        ) : (
-                                            <Play className="h-8 w-8" strokeWidth={2}/>
+                                    {/* Song Info (Title, Artist, Requester) */}
+                                    <div className="flex-1 min-w-0 text-left">
+                                        <h2 className="text-white font-bold text-base line-clamp-2 mb-1">{room.current_song.title}</h2>
+                                        {room.current_song.artist && (
+                                            <p className="text-white/70 text-sm truncate mb-1">{room.current_song.artist}</p>
                                         )}
-                                    </Button>
-                                    <Button
-                                        onClick={skipToNext}
-                                        size="lg"
-                                        className="bg-white/20 hover:bg-white/30 text-white rounded-full w-16 h-16"
-                                    >
-                                        <SkipForward className="h-8 w-8" strokeWidth={2}/>
-                                    </Button>
+                                        <div className="flex items-center space-x-1 text-white/60 text-xs">
+                                            <User className="h-3 w-3" strokeWidth={2}/>
+                                            <span>{room.current_song.requester_name}</span>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
+
+                                {/* Audio Status Indicators */}
+                                {(songDownloading || audioLoading || audioError) && (
+                                    <div className="flex items-center justify-center space-x-2 mt-2 mb-2 text-sm">
+                                        {songDownloading && (
+                                            <span className="text-blue-400 flex items-center">
+                        <Download className="h-4 w-4 animate-bounce mr-1" strokeWidth={2}/>
+                        歌曲載入中...
+                      </span>
+                                        )}
+                                        {audioLoading && !songDownloading && (
+                                            <span className="text-white/60 flex items-center">
+                        <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
+                        音訊載入中...
+                      </span>
+                                        )}
+                                        {audioError && !songDownloading && (
+                                            <span className="text-red-400 flex items-center">
+                        <AlertCircle className="h-4 w-4 mr-1" strokeWidth={2}/>
+                                                {audioError}
+                      </span>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Progress bar and controls on one line */}
+                                <div className="flex items-center space-x-2 mt-1">
+                                    {/* Progress bar and time labels grouped together */}
+                                    <div className="flex-1">
+                                        <Progress value={progress} className="h-1"/>
+                                        <div className="flex justify-between text-white/60 text-xs mt-0.5">
+                                            <span>{formatTime(Math.floor(currentTime))}</span>
+                                            <span>{formatTime(room.current_song.duration)}</span>
+                                        </div>
+                                    </div>
+                                    {/* Controls */}
+                                    <div className="flex flex-col justify-start">
+                                        <div className="flex items-center space-x-2 -mt-4">
+                                            <Button
+                                                onClick={togglePlayback}
+                                                disabled={audioLoading || !!audioError || songDownloading}
+                                                size="icon"
+                                                className="bg-white/20 hover:bg-white/30 text-white rounded-full w-10 h-10 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                {room.playback_state.is_playing && hasUserInteractedWithPlayButton ? (
+                                                    <Pause className="h-5 w-5" strokeWidth={2}/>
+                                                ) : (
+                                                    <Play className="h-5 w-5" strokeWidth={2}/>
+                                                )}
+                                            </Button>
+                                            <Button
+                                                onClick={skipToNext}
+                                                size="icon"
+                                                className="bg-white/20 hover:bg-white/30 text-white rounded-full w-10 h-10"
+                                            >
+                                                <SkipForward className="h-5 w-5" strokeWidth={2}/>
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
                         ) : (
                             <div className="text-center text-white/60 py-8">
                                 <Music className="h-12 w-12 mx-auto mb-4 opacity-50" strokeWidth={2}/>
@@ -857,7 +859,7 @@ export default function RoomPage() {
                             <div className="space-y-3">
                                 {room.queue.map((song, index) => (
                                     <div key={song.id}
-                                         className="flex items-center space-x-3 p-3 bg-white/5 rounded-lg">
+                                         className="flex items-center space-x-2 p-3 bg-white/5 rounded-lg">
                                         <div className="text-white/60 text-sm font-mono w-6">{index + 1}</div>
                                         {song.thumbnail && (
                                             <img
@@ -869,9 +871,9 @@ export default function RoomPage() {
                                         <div className="flex-1 min-w-0">
                                             <p className="text-white font-medium truncate">{song.title}</p>
                                             <div className="flex items-center space-x-2 text-white/60 text-sm">
-                                                <span>{song.requester_name}</span>
-                                                <span>•</span>
                                                 <span>{formatTime(song.duration)}</span>
+                                                <span>•</span>
+                                                <span>{song.requester_name}</span>
                                             </div>
                                         </div>
                                         <Button
