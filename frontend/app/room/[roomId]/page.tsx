@@ -34,8 +34,8 @@ interface Song {
     artist?: string
     duration: number
     thumbnail?: string
-    requested_by: string
-    requested_by_name: string
+    requester_id: string
+    requester_name: string
     added_at: string
 }
 
@@ -771,7 +771,7 @@ export default function RoomPage() {
                                     <div className="flex items-center justify-center space-x-4 text-white/60 text-sm">
                                         <div className="flex items-center">
                                             <User className="h-3 w-3 mr-1" strokeWidth={2}/>
-                                            {room.current_song.requested_by_name}
+                                            {room.current_song.requester_name}
                                         </div>
                                         <div className="flex items-center">
                                             <Clock className="h-3 w-3 mr-1" strokeWidth={2}/>
@@ -869,7 +869,7 @@ export default function RoomPage() {
                                         <div className="flex-1 min-w-0">
                                             <p className="text-white font-medium truncate">{song.title}</p>
                                             <div className="flex items-center space-x-2 text-white/60 text-sm">
-                                                <span>{song.requested_by_name}</span>
+                                                <span>{song.requester_name}</span>
                                                 <span>•</span>
                                                 <span>{formatTime(song.duration)}</span>
                                             </div>
