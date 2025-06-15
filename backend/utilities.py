@@ -23,6 +23,9 @@ line_channel_secret: ''
 # If you change port, make sure to change the port in your reverse proxy as well.
 api_endpoints_port: 5000
 line_webhook_port: 5001
+
+# Frontend website configuration, where users can interact with the music player.
+frontend_url: 'https://cartunes.playfuni.net'
 """
                    )
         file.close()
@@ -50,6 +53,7 @@ def read_config():
                 'line_channel_secret': data['line_channel_secret'],
                 'api_endpoints_port': data['api_endpoints_port'],
                 'line_webhook_port': data['line_webhook_port'],
+                'frontend_url': data['frontend_url']
             }
             file.close()
             return config

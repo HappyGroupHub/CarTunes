@@ -566,7 +566,7 @@ def create_rich_menu_for_user(user_id: str, room_id: str):
         line_bot_api = MessagingApi(api_client)
         line_bot_blob_api = MessagingApiBlob(api_client)
 
-        room_url = f"http://localhost:3000/room/{room_id}?userId={user_id}"
+        room_url = f"{config['frontend_url']}/room/{room_id}?userId={user_id}"
 
         # Define rich menu request
         rich_menu = RichMenuRequest(
