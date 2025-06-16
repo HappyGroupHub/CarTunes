@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnec
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
+import utilities as utils
 from innertube.audio_cache import audio_cache
 from innertube.audio_extractor import get_audio_stream_info
 from models import (
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 room_manager = RoomManager()
 ws_manager = ConnectionManager()
+config = utils.read_config()
 
 background_tasks = set()
 
@@ -97,7 +99,7 @@ async def broadcast_playback_progress():
                             room_id,
                             next_song.dict() if next_song else None
                         )
-                        # FIXED: Also broadcast queue update for natural song finish
+                        # Also broadcast queue update for natural song finish
                         await ws_manager.broadcast_queue_reordered(room_id,
                                                                    [s.dict() for s in room.queue])
                     else:
@@ -105,8 +107,8 @@ async def broadcast_playback_progress():
                         # and only if there are active connections
                         connection_count = ws_manager.get_room_connection_count(room_id)
                         if connection_count > 0:
-                            # Check if we should send progress update (every 5 seconds)
-                            if int(current_time) % 5 == 0:
+                            # Check if we should send progress update
+                            if int(current_time) % config['progress_broadcast_interval'] == 0:
                                 await ws_manager.broadcast_playback_progress(
                                     room_id,
                                     current_time,
@@ -469,7 +471,6 @@ async def add_song_to_queue(
     if not any(m.user_id == user_id for m in room.members):
         raise HTTPException(status_code=403, detail="Not a room member")
 
-    # Get song info if not provided
     song_data = {
         'video_id': request.video_id,
         'title': request.title,
@@ -477,20 +478,16 @@ async def add_song_to_queue(
         'duration': request.duration,
         'thumbnail': request.thumbnail
     }
-    if not request.title:
-        audio_info = get_audio_stream_info(request.video_id)
-        if not audio_info:
-            raise HTTPException(status_code=400, detail="Invalid video ID or video not available")
-
-        song_data['title'] = audio_info.get('title', 'Unknown')
-        song_data['artist'] = audio_info.get('uploader', 'Unknown')
-        song_data['duration'] = audio_info.get('duration', 0)
-        song_data['thumbnail'] = audio_info.get('thumbnail', '')
 
     # Validate that we can get audio info before adding to queue
     if not song_data['title'] or song_data['duration'] <= 0:
         raise HTTPException(status_code=400,
                             detail="Unable to extract audio information from this video")
+    # Check song length limit
+    if song_data['duration'] > config['song_length_limit']:
+        minutes = config['song_length_limit'] // 60
+        raise HTTPException(status_code=400,
+                            detail=f"Song exceeds length limit of {minutes} minutes")
 
     # Check if this will be the first song (current song)
     will_be_current_song = not room.current_song and not room.playback_state.is_playing

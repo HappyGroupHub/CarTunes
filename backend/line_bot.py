@@ -13,6 +13,7 @@ from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, TextMes
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
 
 import utilities as utils
+from backend.innertube.audio_extractor import get_audio_stream_info
 from innertube.search import search_youtube
 from room_manager import RoomManager
 
@@ -39,6 +40,9 @@ user_rooms = {}
 # Cache for storing search results when postback data is too long
 # Key: video_id, Value: search result data
 postback_cache: Dict[str, Dict[str, Any]] = {}
+
+# Song length limit in minutes
+song_len_min = config['song_length_limit'] // 60
 
 
 # ===== Song Keyword Search Cache =====
@@ -425,10 +429,29 @@ def handle_message(event):
         # Check if it's a direct YouTube URL
         video_id = utils.extract_video_id_from_url(message_received)
         if video_id:
-            # If it's a direct YouTube URL - add to queue immediately
             room_id = user_rooms[user_id]
             user_name = line_bot_api.get_profile(user_id).display_name
-            result = add_song_via_api(room_id, video_id, user_id, user_name)
+
+            audio_info = get_audio_stream_info(video_id)
+            if not audio_info:
+                reply_message = TextMessage(text="❌ 新增歌曲失敗，請檢查連結是否正確！")
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[reply_message]))
+                return
+            else:
+                if audio_info['duration'] > config['song_length_limit']:
+                    reply_message = TextMessage(
+                        text=f"❌ 歌曲長度超過 {song_len_min} 分鐘限制\n"
+                             f"請選擇其他歌曲！")
+                    line_bot_api.reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token, messages=[reply_message]))
+                    return
+                result = add_song_via_api(room_id, video_id, user_id, user_name,
+                                          title=audio_info.get('title', 'Unknown'),
+                                          artist=audio_info.get('uploader', 'Unknown'),
+                                          duration=audio_info.get('duration', '0'),
+                                          thumbnail=audio_info.get('thumbnail',
+                                                                   'https://i.imgur.com/zSJgfAT.jpeg'))
 
             if result:
                 reply_message = TextMessage(
@@ -495,6 +518,14 @@ def handle_postback(event):
                     duration = part[9:]
                 elif part.startswith("thumbnail:"):
                     thumbnail = part[10:]
+
+            # Check if duration is valid, then send add song request
+            if not utils.check_video_duration(duration):
+                reply_message = TextMessage(text=f"❌ 歌曲長度超過 {song_len_min} 分鐘限制\n"
+                                                 f"請選擇其他歌曲！")
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[reply_message]))
+                return
             result = add_song_via_api(room_id, video_id, user_id, user_name, title=title,
                                       artist=artist, duration=duration, thumbnail=thumbnail)
 
@@ -518,6 +549,13 @@ def handle_postback(event):
                 duration = cached_data.get('duration', 'N/A')
                 thumbnail = cached_data.get('thumbnail', '')
 
+                # Check if duration is valid, then send add song request
+                if not utils.check_video_duration(duration):
+                    reply_message = TextMessage(text=f"❌ 歌曲長度超過 {song_len_min} 分鐘限制\n"
+                                                     f"請選擇其他歌曲！")
+                    line_bot_api.reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token, messages=[reply_message]))
+                    return
                 result = add_song_via_api(room_id, video_id, user_id, user_name,
                                           title=title, artist=artist, duration=duration,
                                           thumbnail=thumbnail)

@@ -8,9 +8,11 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 
+import utilities as utils
 from models import Room, Member, Song, PlaybackState
 
 logger = logging.getLogger(__name__)
+config = utils.read_config()
 
 
 class RoomManager:
@@ -308,12 +310,11 @@ class RoomManager:
             return False
 
         # Room should be closed if:
-        # 1. No active connections
-        # 2. Not playing music
-        # 3. No activity for 30 minutes
+        # 1. No active WebSocket connections
+        # 2. Inactive for the configured time period
+        inactivity_threshold = timedelta(minutes=config['room_cleanup_after_inactivity'])
         if (room.active_connections == 0 and
-                not room.playback_state.is_playing and
-                datetime.now() - room.last_activity > timedelta(minutes=30)):
+                datetime.now() - room.last_activity > inactivity_threshold):
             return True
 
         return False
@@ -330,9 +331,17 @@ class RoomManager:
 
                 for room_id in inactive_rooms:
                     room = self.rooms[room_id]
-                    # Remove user mappings
+                    # Remove user mappings and rich menus
                     for member in room.members:
                         self.user_rooms.pop(member.user_id, None)
+                        try:  # Remove rich menu for each user
+                            from line_bot import remove_rich_menu_from_user, user_rooms
+                            if member.user_id in user_rooms:
+                                del user_rooms[member.user_id]
+                            remove_rich_menu_from_user(member.user_id)
+                        except Exception as e:
+                            logger.error(f"Error removing rich menu for user {member.user_id}: {e}")
+
                     # Remove room
                     self.rooms.pop(room_id, None)
                     logger.info(f"Closed inactive room: {room_id}")

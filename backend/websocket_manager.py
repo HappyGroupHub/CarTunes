@@ -8,9 +8,11 @@ from typing import Dict, Set
 
 from fastapi import WebSocket
 
+import utilities as utils
 from models import WSMessage, WSMessageType
 
 logger = logging.getLogger(__name__)
+config = utils.read_config()
 
 
 class ConnectionManager:
