@@ -356,7 +356,7 @@ def handle_message(event):
                 return
 
             if len(message_received) == 6:
-                room_id = message_received
+                room_id = message_received.upper()
             else:
                 try:
                     # Extract room ID from the message, it will be only 6 characters long
