@@ -75,6 +75,12 @@ def read_config():
                 'progress_broadcast_interval': data['progress_broadcast_interval']
             }
             file.close()
+
+            # Validate if LINE channel access token and secret are provided
+            if not config['line_channel_access_token'] or not config['line_channel_secret']:
+                print("Please fill in LINE channel access token and secret in config.yml.\n"
+                      "You can get it from https://developers.line.biz/console/")
+                sys.exit()
             return config
     except (KeyError, TypeError):
         print(
