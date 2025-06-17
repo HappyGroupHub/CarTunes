@@ -450,14 +450,9 @@ async def leave_room(room_id: str, user_id: str = Query(...)):
 # ===== Queue Endpoints =====
 
 @app.post("/api/room/{room_id}/queue/add", response_model=AddSongResponse)
-async def add_song_to_queue(
-        request_object: Request,
-        room_id: str,
-        request: AddSongRequest,
-        user_id: str = Query(...),
-        user_name: str = Query("User")
-):
-    """Add a song to the queue"""
+async def add_song_to_queue(request_object: Request, room_id: str, request: AddSongRequest,
+                            user_id: str = Query(...), user_name: str = Query("User")):
+    """Add a song to the queue, receiving only from internal calls (line_bot.py)"""
     # Only allow requests from localhost
     client_ip = request_object.client.host
     if client_ip != "127.0.0.1":
@@ -466,8 +461,6 @@ async def add_song_to_queue(
     room = room_manager.get_room(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
-
-    # Check if user is in room
     if not any(m.user_id == user_id for m in room.members):
         raise HTTPException(status_code=403, detail="Not a room member")
 
@@ -479,40 +472,27 @@ async def add_song_to_queue(
         'thumbnail': request.thumbnail
     }
 
-    # Validate that we can get audio info before adding to queue
-    if not song_data['title'] or song_data['duration'] <= 0:
-        raise HTTPException(status_code=400,
-                            detail="Unable to extract audio information from this video")
-    # Check song length limit
-    if song_data['duration'] > config['song_length_limit']:
-        minutes = config['song_length_limit'] // 60
-        raise HTTPException(status_code=400,
-                            detail=f"Song exceeds length limit of {minutes} minutes")
+    # Basic validation only, since we did it already in line_bot.py
+    if not song_data['title']:
+        raise HTTPException(status_code=400, detail="Invalid song data")
 
-    # Check if this will be the first song (current song)
-    will_be_current_song = not room.current_song and not room.playback_state.is_playing
-
-    # Add song
+    # Add song to the queue
     song = room_manager.add_song_to_queue(room_id, song_data, user_id, user_name)
-
     if not song:
         raise HTTPException(status_code=500, detail="Failed to add song")
 
-    # Trigger preloading of this song and upcoming songs
-    upcoming_video_ids = [song.video_id for song in room.queue[:5]]
-    if room.current_song:
-        upcoming_video_ids.insert(0, room.current_song.video_id)
-
-    # Start preloading in background
-    asyncio.create_task(audio_cache.preload_queue_songs(upcoming_video_ids))
-
-    # FIXED: Only broadcast song_added if it's going to queue, not if it became current song
+    # Check if this will be the first song
+    will_be_current_song = not room.current_song and not room.playback_state.is_playing
     if not will_be_current_song:
         await ws_manager.broadcast_song_added(room_id, song.dict())
-
-    # If this became the current song, broadcast that instead
-    if room.current_song and room.current_song.id == song.id:
+    else:
         await ws_manager.broadcast_song_changed(room_id, song.dict())
+
+    # Start preloading in background (non-blocking)
+    upcoming_video_ids = [s.video_id for s in room.queue[:5]]
+    if room.current_song:
+        upcoming_video_ids.insert(0, room.current_song.video_id)
+    asyncio.create_task(audio_cache.preload_queue_songs(upcoming_video_ids))
 
     return AddSongResponse(
         message="Song added to queue",

@@ -552,24 +552,25 @@ def handle_postback(event):
                 elif part.startswith("thumbnail:"):
                     thumbnail = part[10:]
 
-            # Check if duration is valid, then send add song request
+            # Filter duration before responding
             if not utils.check_video_duration(duration):
-                reply_message = TextMessage(text=f"❌ 歌曲長度超過 {song_len_min} 分鐘限制\n"
-                                                 f"請選擇其他歌曲！")
+                reply_message = TextMessage(
+                    text=f"❌ 歌曲長度超過 {song_len_min} 分鐘限制\n請選擇其他歌曲！")
                 line_bot_api.reply_message(ReplyMessageRequest(
                     reply_token=event.reply_token, messages=[reply_message]))
                 return
-            result = add_song_via_api(room_id, video_id, user_id, user_name, title=title,
-                                      artist=artist, duration=duration, thumbnail=thumbnail)
 
-            if result:
-                reply_message = TextMessage(
-                    text=f"✅ 歌曲已新增至播放佇列！\n🎵 {result['song']['title']}")
-            else:
-                reply_message = TextMessage(text="❌ 新增歌曲失敗，請稍後再試！")
-
+            # Immediate success response
+            reply_message = TextMessage(text=f"✅ 歌曲已新增至播放佇列！\n🎵 {title}")
             line_bot_api.reply_message(ReplyMessageRequest(
                 reply_token=event.reply_token, messages=[reply_message]))
+
+            # Add song asynchronously in the background
+            try:
+                result = add_song_via_api(room_id, video_id, user_id, user_name, title=title,
+                                          artist=artist, duration=duration, thumbnail=thumbnail)
+            except Exception as e:
+                print(f"Error in async song addition: {e}")
 
         elif postback_data.startswith("add_song_cached:"):
             # Extract video ID and get data from cache
@@ -582,26 +583,30 @@ def handle_postback(event):
                 duration = cached_data.get('duration', 'N/A')
                 thumbnail = cached_data.get('thumbnail', '')
 
-                # Check if duration is valid, then send add song request
+                # Filter duration before responding
                 if not utils.check_video_duration(duration):
-                    reply_message = TextMessage(text=f"❌ 歌曲長度超過 {song_len_min} 分鐘限制\n"
-                                                     f"請選擇其他歌曲！")
+                    reply_message = TextMessage(
+                        text=f"❌ 歌曲長度超過 {song_len_min} 分鐘限制\n請選擇其他歌曲！")
                     line_bot_api.reply_message(ReplyMessageRequest(
                         reply_token=event.reply_token, messages=[reply_message]))
                     return
-                result = add_song_via_api(room_id, video_id, user_id, user_name,
-                                          title=title, artist=artist, duration=duration,
-                                          thumbnail=thumbnail)
 
-                if result:
-                    reply_message = TextMessage(text=f"✅ 歌曲已新增至播放佇列！\n🎵 {title}")
-                else:
-                    reply_message = TextMessage(text="❌ 新增歌曲失敗，請稍後再試！")
+                # Immediate success response
+                reply_message = TextMessage(text=f"✅ 歌曲已新增至播放佇列！\n🎵 {title}")
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[reply_message]))
+
+                # Add song asynchronously in the background
+                try:
+                    result = add_song_via_api(room_id, video_id, user_id, user_name,
+                                              title=title, artist=artist, duration=duration,
+                                              thumbnail=thumbnail)
+                except Exception as e:
+                    print(f"Error in async song addition: {e}")
             else:
                 reply_message = TextMessage(text="❌ 歌曲資料已過期，請重新搜尋。")
-
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[reply_message]))
 
         elif postback_data.startswith("next_page:"):
             # Handle pagination
