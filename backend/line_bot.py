@@ -439,12 +439,21 @@ def handle_message(event):
                 reply_token=event.reply_token, messages=[reply_message]))
             return
 
-        # Handle music search/add commands
-        # Check if it's a direct YouTube URL
-        video_id = utils.extract_video_id_from_url(message_received)
-        if video_id:
-            room_id = user_rooms[user_id]
-            user_name = line_bot_api.get_profile(user_id).display_name
+        # Handle URL messages to check if it's a valid YouTube link
+        if utils.is_url(message_received):
+            if not utils.is_youtube_url(message_received):
+                reply_message = TextMessage(text="❌ 目前僅支援 YouTube 連結點歌！\n")
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[reply_message]))
+                return
+
+            video_id = utils.extract_video_id_from_url(message_received)
+            if not video_id:
+                reply_message = TextMessage(text="❌ 無效的 YouTube 連結！\n"
+                                                 "請重新確認連結或直接搜尋關鍵字")
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[reply_message]))
+                return
 
             audio_info = get_audio_stream_info(video_id)
             if not audio_info:
@@ -453,28 +462,38 @@ def handle_message(event):
                     reply_token=event.reply_token, messages=[reply_message]))
                 return
             else:
-                if audio_info['duration'] > config['song_length_limit']:
+                room_id = user_rooms[user_id]
+                user_name = line_bot_api.get_profile(user_id).display_name
+
+                if audio_info['duration'] is None:  # It's a live video
+                    reply_message = TextMessage(
+                        text="❌ 無法新增直播至播放佇列！\n"
+                             "請選擇其他一般長度的影片或歌曲")
+                    line_bot_api.reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token, messages=[reply_message]))
+                    return
+                elif audio_info['duration'] > config['song_length_limit']:
                     reply_message = TextMessage(
                         text=f"❌ 歌曲長度超過 {song_len_min} 分鐘限制\n"
                              f"請選擇其他歌曲！")
                     line_bot_api.reply_message(ReplyMessageRequest(
                         reply_token=event.reply_token, messages=[reply_message]))
                     return
+
                 result = add_song_via_api(room_id, video_id, user_id, user_name,
                                           title=audio_info.get('title', 'Unknown'),
                                           artist=audio_info.get('uploader', 'Unknown'),
                                           duration=audio_info.get('duration', '0'),
-                                          thumbnail=audio_info.get('thumbnail',
-                                                                   'https://i.imgur.com/zSJgfAT.jpeg'))
+                                          thumbnail=audio_info.get(
+                                              'thumbnail', 'https://i.imgur.com/zSJgfAT.jpeg'))
+                if result:
+                    reply_message = TextMessage(
+                        text=f"✅ 歌曲已新增至播放佇列！\n🎵 {result['song']['title']}")
+                else:
+                    reply_message = TextMessage(text="❌ 新增歌曲失敗，請檢查連結是否正確！")
 
-            if result:
-                reply_message = TextMessage(
-                    text=f"✅ 歌曲已新增至播放佇列！\n🎵 {result['song']['title']}")
-            else:
-                reply_message = TextMessage(text="❌ 新增歌曲失敗，請檢查連結是否正確！")
-
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[reply_message]))
         else:  # Keyword search
             if len(message_received) > 50:
                 reply_message = TextMessage(text="搜尋關鍵字過長，請重新輸入！")

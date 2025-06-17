@@ -1,5 +1,6 @@
 import re
 import sys
+import urllib.parse
 from os.path import exists
 
 import yaml
@@ -108,24 +109,6 @@ def convert_duration_to_seconds(duration_str: str | int) -> int | None:
         return None
 
 
-def extract_video_id_from_url(url: str) -> str | None:
-    """Extract video ID from YouTube URL."""
-    # Pattern for https://www.youtube.com/watch?v=VIDEO_ID
-    pattern1 = r'https://www\.youtube\.com/watch\?v=([a-zA-Z0-9_-]+)'
-    # Pattern for https://youtu.be/VIDEO_ID
-    pattern2 = r'https://youtu\.be/([a-zA-Z0-9_-]+)'
-
-    match = re.search(pattern1, url)
-    if match:
-        return match.group(1)
-
-    match = re.search(pattern2, url)
-    if match:
-        return match.group(1)
-
-    return None
-
-
 def check_video_duration(duration: str) -> bool:
     """Check if the video duration is within the limit."""
     seconds = convert_duration_to_seconds(duration)
@@ -133,3 +116,61 @@ def check_video_duration(duration: str) -> bool:
         return False
     config = read_config()
     return seconds <= config['song_length_limit']
+
+
+def is_url(text: str) -> bool:
+    """Check if the given text is a valid URL."""
+    try:
+        result = urllib.parse.urlparse(text)
+        return all([result.scheme, result.netloc])
+    except Exception:
+        return False
+
+
+def is_youtube_url(url: str) -> bool:
+    """Check if the given URL is a YouTube URL."""
+    if not is_url(url):
+        return False
+
+    parsed = urllib.parse.urlparse(url)
+    youtube_domains = [
+        'youtube.com', 'www.youtube.com', 'm.youtube.com',
+        'youtu.be', 'music.youtube.com'
+    ]
+
+    return parsed.netloc.lower() in youtube_domains
+
+
+def extract_video_id_from_url(url: str) -> str | None:
+    """Extract video ID from various YouTube URL formats."""
+    if not is_youtube_url(url):
+        return None
+
+    # Remove any whitespace and normalize URL
+    url = url.strip()
+
+    # Patterns for different YouTube URL formats
+    patterns = [
+        # Standard watch URLs
+        r'(?:youtube\.com|m\.youtube\.com)/watch\?.*v=([a-zA-Z0-9_-]+)',
+        # Short URLs
+        r'youtu\.be/([a-zA-Z0-9_-]+)',
+        # Embed URLs
+        r'(?:youtube\.com|m\.youtube\.com)/embed/([a-zA-Z0-9_-]+)',
+        # YouTube Music URLs
+        r'music\.youtube\.com/watch\?.*v=([a-zA-Z0-9_-]+)',
+        # Live URLs
+        r'(?:youtube\.com|m\.youtube\.com)/live/([a-zA-Z0-9_-]+)',
+        # Shorts URLs
+        r'(?:youtube\.com|m\.youtube\.com)/shorts/([a-zA-Z0-9_-]+)',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, url, re.IGNORECASE)
+        if match:
+            video_id = match.group(1)
+            # Additional validation for video ID format
+            if re.match(r'^[a-zA-Z0-9_-]{11}$', video_id):
+                return video_id
+
+    return None
