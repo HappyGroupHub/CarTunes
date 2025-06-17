@@ -335,10 +335,10 @@ class RoomManager:
                     for member in room.members:
                         self.user_rooms.pop(member.user_id, None)
                         try:  # Remove rich menu for each user
-                            from line_bot import remove_rich_menu_from_user, user_rooms
+                            from line_bot import unlink_rich_menu_from_user, user_rooms
                             if member.user_id in user_rooms:
                                 del user_rooms[member.user_id]
-                            remove_rich_menu_from_user(member.user_id)
+                            unlink_rich_menu_from_user(member.user_id)
                         except Exception as e:
                             logger.error(f"Error removing rich menu for user {member.user_id}: {e}")
 
