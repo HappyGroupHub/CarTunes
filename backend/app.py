@@ -36,10 +36,6 @@ background_tasks = set()
 # App lifespan manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    cleanup_task = asyncio.create_task(room_manager.cleanup_inactive_rooms())
-    background_tasks.add(cleanup_task)
-
     # Start playback progress updater
     progress_task = asyncio.create_task(broadcast_playback_progress())
     background_tasks.add(progress_task)
@@ -759,8 +755,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
         await websocket.close(code=4003, reason="Not a room member")
         return
 
-    # Connect
-    await ws_manager.connect(websocket, room_id, user_id)
+    # Connect - pass room_manager instance
+    await ws_manager.connect(websocket, room_id, user_id, room_manager)
 
     # Update connection count
     connection_count = ws_manager.get_room_connection_count(room_id)
@@ -814,8 +810,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
     except Exception as e:
         logger.error(f"WebSocket error for user {user_id} in room {room_id}: {e}")
     finally:
-        # Cleanup: Disconnect and update connection count
-        room_id_disconnected, user_id_disconnected = ws_manager.disconnect(websocket)
+        # Cleanup: Disconnect and update connection count - pass room_manager instance
+        room_id_disconnected, user_id_disconnected = ws_manager.disconnect(websocket, room_manager)
 
         if room_id_disconnected:
             # Update connection count

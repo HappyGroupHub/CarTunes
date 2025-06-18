@@ -34,6 +34,10 @@ frontend_url: 'https://cartunes.playfuni.net'
 # Shows an error if the song exceeds this limit.
 song_length_limit: 1800
 
+# Pause music if no active websocket connections for this many seconds.
+# Default is 10 seconds.
+pause_music_after_no_connections: 10
+
 # Rooms would be automatically deleted after this many minutes of inactivity.
 # Inactivity definition: No active websocket connections, aka noone is browsing the website
 # Default is 2 hours (120 minutes).
@@ -71,6 +75,7 @@ def read_config():
                 'line_webhook_port': data['line_webhook_port'],
                 'frontend_url': data['frontend_url'],
                 'song_length_limit': data['song_length_limit'],
+                'pause_music_after_no_connections': data['pause_music_after_no_connections'],
                 'room_cleanup_after_inactivity': data['room_cleanup_after_inactivity'],
                 'progress_broadcast_interval': data['progress_broadcast_interval']
             }

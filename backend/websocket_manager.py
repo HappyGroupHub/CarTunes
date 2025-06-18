@@ -4,7 +4,7 @@ WebSocket connection management for real-time updates
 
 import logging
 from datetime import datetime
-from typing import Dict, Set
+from typing import Dict, Set, Any
 
 from fastapi import WebSocket
 
@@ -22,45 +22,48 @@ class ConnectionManager:
         # websocket -> (room_id, user_id)
         self.connection_info: Dict[WebSocket, tuple] = {}
 
-    async def connect(self, websocket: WebSocket, room_id: str, user_id: str):
-        """Accept WebSocket connection and add to room"""
+    async def connect(self, websocket: WebSocket, room_id: str, user_id: str, room_manager=None):
+        """Add new WebSocket connection"""
         await websocket.accept()
 
-        # Add to room connections
         if room_id not in self.active_connections:
             self.active_connections[room_id] = set()
+
         self.active_connections[room_id].add(websocket)
-
-        # Store connection info
         self.connection_info[websocket] = (room_id, user_id)
-        logger.info(f"User {user_id} connected to room {room_id}")
 
-        # Send connection confirmation
-        await self.send_personal_message(
-            WSMessage(
-                type=WSMessageType.CONNECTED,
-                data={"room_id": room_id, "user_id": user_id}
-            ),
-            websocket
-        )
+        # Cancel both timers since room now has connections
+        if room_manager:
+            room_manager.cancel_pause_timer(room_id)
+            room_manager.cancel_cleanup_timer(room_id)
 
-    def disconnect(self, websocket: WebSocket):
-        """Remove WebSocket connection"""
-        if websocket in self.connection_info:
-            room_id, user_id = self.connection_info[websocket]
+        logger.info(f"WebSocket connected: {user_id} to room {room_id}")
 
-            # Remove from room connections
+    def disconnect(self, websocket: WebSocket, room_manager=None) -> tuple[Any, Any] | tuple[
+        None, None]:
+        """Remove WebSocket connection and return room_id, user_id"""
+        connection_data = self.connection_info.pop(websocket, None)
+
+        if connection_data:
+            room_id, user_id = connection_data
+
             if room_id in self.active_connections:
                 self.active_connections[room_id].discard(websocket)
 
-                # Clean up empty rooms
+                # If room has no more connections, start both timers
+                if len(self.active_connections[room_id]) == 0:
+                    if room_manager:
+                        # Start pause timer (short delay)
+                        room_manager.start_pause_timer(room_id,
+                                                       config['pause_music_after_no_connections'])
+                        # Start cleanup timer (long delay)
+                        room_manager.start_cleanup_timer(room_id)
+
+                # Clean up empty room from connections
                 if not self.active_connections[room_id]:
                     del self.active_connections[room_id]
 
-            # Remove connection info
-            del self.connection_info[websocket]
-            logger.info(f"User {user_id} disconnected from room {room_id}")
-
+            logger.info(f"WebSocket disconnected: {user_id} from room {room_id}")
             return room_id, user_id
 
         return None, None

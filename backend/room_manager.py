@@ -5,7 +5,7 @@ Room management logic for CarTunes with inactivity tracking
 import asyncio
 import logging
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Optional, List
 
 import utilities as utils
@@ -18,7 +18,11 @@ config = utils.read_config()
 class RoomManager:
     def __init__(self):
         self.rooms: Dict[str, Room] = {}
-        self.user_rooms: Dict[str, str] = {}  # user_id -> room_id mapping
+        self.user_rooms: Dict[str, str] = {}  # user_id -> room_id
+        self.pause_timers: Dict[str, asyncio.Task] = {}  # room_id -> timer task
+        self.cleanup_timers: Dict[str, asyncio.Task] = {}  # room_id -> cleanup timer task
+
+    # ===== Room Creation =====
 
     def generate_room_id(self) -> str:
         """Generate a unique 6-character room ID
@@ -62,6 +66,21 @@ class RoomManager:
         logger.info(f"Room {room_id} created by user {user_id}")
         return room
 
+    # ===== Room Information =====
+
+    def get_room(self, room_id: str) -> Optional[Room]:
+        """Get room by ID"""
+        return self.rooms.get(room_id)
+
+    def get_user_room(self, user_id: str) -> Optional[Room]:
+        """Get the room a user is currently in"""
+        room_id = self.user_rooms.get(user_id)
+        if room_id:
+            return self.rooms.get(room_id)
+        return None
+
+    # ===== Room Actions =====
+
     def join_room(self, room_id: str, user_id: str, user_name: str = "User") -> Optional[Room]:
         """Join an existing room"""
         if room_id not in self.rooms:
@@ -84,37 +103,6 @@ class RoomManager:
         room.last_activity = datetime.now()
 
         return room
-
-    def get_room(self, room_id: str) -> Optional[Room]:
-        """Get room by ID"""
-        return self.rooms.get(room_id)
-
-    def get_user_room(self, user_id: str) -> Optional[Room]:
-        """Get the room a user is currently in"""
-        room_id = self.user_rooms.get(user_id)
-        if room_id:
-            return self.rooms.get(room_id)
-        return None
-
-    def get_room_stats(self, room_id: str) -> Optional[dict]:
-        """Get room statistics"""
-        room = self.rooms.get(room_id)
-        if not room:
-            return None
-
-        total_duration = sum(s.duration for s in room.queue)
-        if room.current_song:
-            total_duration += room.current_song.duration - self.get_current_playback_time(room_id)
-
-        return {
-            "room_id": room_id,
-            "member_count": len(room.members),
-            "queue_length": len(room.queue),
-            "total_duration": total_duration,
-            "active_connections": room.active_connections,
-            "created_at": room.created_at.isoformat(),
-            "last_activity": room.last_activity.isoformat()
-        }
 
     def update_room_activity(self, room_id: str):
         """Update room's last activity timestamp"""
@@ -145,24 +133,6 @@ class RoomManager:
             logger.info(f"Room {room_id} deleted (no members)")
 
         return True
-
-    def get_upcoming_video_ids(self, room_id: str, limit: int = 5) -> List[str]:
-        """Get video IDs of upcoming songs in queue for preloading"""
-        room = self.rooms.get(room_id)
-        if not room:
-            return []
-
-        video_ids = []
-
-        # Add current song if playing
-        if room.current_song:
-            video_ids.append(room.current_song.video_id)
-
-        # Add queue songs
-        for song in room.queue[:limit]:
-            video_ids.append(song.video_id)
-
-        return video_ids[:limit]
 
     def add_song_to_queue(self, room_id: str, song_data: dict, user_id: str, user_name: str) -> \
             Optional[Song]:
@@ -298,56 +268,122 @@ class RoomManager:
 
         return True
 
-    def _update_queue_positions(self, room: Room):
+    @staticmethod
+    def _update_queue_positions(room: Room):
         """Update position numbers for all songs in queue"""
         for i, song in enumerate(room.queue):
             song.position = i
 
-    def check_room_inactivity(self, room_id: str) -> bool:
-        """Check if room should be closed due to inactivity"""
+    # ===== Song Auto-paused Timer =====
+
+    async def _pause_timer_task(self, room_id: str, delay_seconds: int):
+        """Timer task that pauses music after delay"""
+        try:
+            await asyncio.sleep(delay_seconds)
+            # Timer completed, pause music
+            success = self.pause_music_for_no_connections(room_id)
+            if success:
+                from app import ws_manager
+                room = self.get_room(room_id)
+                if room:
+                    await ws_manager.broadcast_playback_state(
+                        room_id,
+                        False,
+                        room.playback_state.current_time
+                    )
+            # Remove completed timer
+            self.pause_timers.pop(room_id, None)
+        except asyncio.CancelledError:
+            # Timer was canceled (new connection joined)
+            self.pause_timers.pop(room_id, None)
+        except Exception as e:
+            logger.error(f"Error in pause timer for room {room_id}: {e}")
+            self.pause_timers.pop(room_id, None)
+
+    def start_pause_timer(self, room_id: str, delay_seconds: int):
+        """Start countdown timer to pause music when no connections"""
+        # Cancel existing timer if any
+        self.cancel_pause_timer(room_id)
+
+        room = self.get_room(room_id)
+        if room and room.current_song and room.playback_state.is_playing:
+            # Only start timer if room has music playing
+            timer_task = asyncio.create_task(self._pause_timer_task(room_id, delay_seconds))
+            self.pause_timers[room_id] = timer_task
+            logger.info(f"Started pause timer for room {room_id} ({delay_seconds}s)")
+
+    def cancel_pause_timer(self, room_id: str):
+        """Cancel pause timer when new connection joins"""
+        if room_id in self.pause_timers:
+            self.pause_timers[room_id].cancel()
+            self.pause_timers.pop(room_id, None)
+            logger.info(f"Cancelled pause timer for room {room_id}")
+
+    def pause_music_for_no_connections(self, room_id: str) -> bool:
+        """Pause music in room due to no active connections"""
         room = self.rooms.get(room_id)
         if not room:
             return False
 
-        # Room should be closed if:
-        # 1. No active WebSocket connections
-        # 2. Inactive for the configured time period
-        inactivity_threshold = timedelta(minutes=config['room_cleanup_after_inactivity'])
-        if (room.active_connections == 0 and
-                datetime.now() - room.last_activity > inactivity_threshold):
+        if room.current_song and room.playback_state.is_playing:
+            # Update current time before pausing
+            current_time = self.get_current_playback_time(room_id)
+            room.playback_state.is_playing = False
+            room.playback_state.current_time = current_time
+            room.playback_state.last_update = datetime.now()
+            logger.info(f"Music paused in room {room_id} due to no active connections")
             return True
 
         return False
 
-    async def cleanup_inactive_rooms(self):
-        """Periodically check and remove inactive rooms"""
-        while True:
-            try:
-                inactive_rooms = []
+    # ===== Inactive Room Cleanup Timer =====
 
-                for room_id in list(self.rooms.keys()):
-                    if self.check_room_inactivity(room_id):
-                        inactive_rooms.append(room_id)
+    async def _cleanup_timer_task(self, room_id: str, delay_seconds: int):
+        """Timer task that deletes room after delay"""
+        try:
+            await asyncio.sleep(delay_seconds)
+            # Timer completed, delete room
+            room = self.rooms.get(room_id)
+            if room:
+                # Remove user mappings and rich menus
+                for member in room.members:
+                    self.user_rooms.pop(member.user_id, None)
+                    try:
+                        from line_bot import unlink_rich_menu_from_user, user_rooms
+                        if member.user_id in user_rooms:
+                            del user_rooms[member.user_id]
+                        unlink_rich_menu_from_user(member.user_id)
+                    except Exception as e:
+                        logger.error(f"Error removing rich menu for user {member.user_id}: {e}")
 
-                for room_id in inactive_rooms:
-                    room = self.rooms[room_id]
-                    # Remove user mappings and rich menus
-                    for member in room.members:
-                        self.user_rooms.pop(member.user_id, None)
-                        try:  # Remove rich menu for each user
-                            from line_bot import unlink_rich_menu_from_user, user_rooms
-                            if member.user_id in user_rooms:
-                                del user_rooms[member.user_id]
-                            unlink_rich_menu_from_user(member.user_id)
-                        except Exception as e:
-                            logger.error(f"Error removing rich menu for user {member.user_id}: {e}")
+                # Cancel pause timer if exists
+                self.cancel_pause_timer(room_id)
 
-                    # Remove room
-                    self.rooms.pop(room_id, None)
-                    logger.info(f"Closed inactive room: {room_id}")
+                # Remove room
+                self.rooms.pop(room_id, None)
+                logger.info(f"Closed inactive room: {room_id}")
 
-            except Exception as e:
-                logger.error(f"Error in room cleanup: {e}")
+            # Remove completed timer
+            self.cleanup_timers.pop(room_id, None)
+        except asyncio.CancelledError:
+            self.cleanup_timers.pop(room_id, None)
+        except Exception as e:
+            logger.error(f"Error in cleanup timer for room {room_id}: {e}")
+            self.cleanup_timers.pop(room_id, None)
 
-            # Check every 5 minutes
-            await asyncio.sleep(300)
+    def start_cleanup_timer(self, room_id: str):
+        """Start cleanup timer when room has no connections"""
+        # Cancel existing timer if any
+        self.cancel_cleanup_timer(room_id)
+
+        delay_seconds = config['room_cleanup_after_inactivity'] * 60  # Convert minutes to seconds
+        timer_task = asyncio.create_task(self._cleanup_timer_task(room_id, delay_seconds))
+        self.cleanup_timers[room_id] = timer_task
+        logger.info(f"Started cleanup timer for room {room_id} ({delay_seconds}s)")
+
+    def cancel_cleanup_timer(self, room_id: str):
+        """Cancel cleanup timer when room gets connections"""
+        if room_id in self.cleanup_timers:
+            self.cleanup_timers[room_id].cancel()
+            self.cleanup_timers.pop(room_id, None)
+            logger.info(f"Cancelled cleanup timer for room {room_id}")
