@@ -176,7 +176,7 @@ export default function RoomPage() {
                                     current_time: prev.playback_state.current_time, // Keep current progress
                                 }
                                 : roomData.playback_state,
-                        active_users: roomData.active_users || 0,
+                        active_users: prev?.active_users || 0,
                     }))
 
                     if (roomData.current_song && audioRef.current) {
@@ -341,34 +341,15 @@ export default function RoomPage() {
                     break
 
                 case "USER_JOINED":
-                    setRoom((prev) =>
-                        prev
-                            ? {
-                                ...prev,
-                                members: [
-                                    ...prev.members.filter((m) => m.user_id !== data.data.user_id),
-                                    {
-                                        user_id: data.data.user_id,
-                                        user_name: data.data.user_name,
-                                        joined_at: data.data.timestamp,
-                                    },
-                                ],
-                                active_users: prev.active_users + 1,
-                            }
-                            : null,
-                    )
+                    // Just a notification - don't modify state
+                    // The ROOM_STATS_UPDATE message will handle active_users count
+                    // The ROOM_STATE message will handle members list updates
                     break
 
                 case "USER_LEFT":
-                    setRoom((prev) =>
-                        prev
-                            ? {
-                                ...prev,
-                                members: prev.members.filter((m) => m.user_id !== data.data.user_id),
-                                active_users: Math.max(0, prev.active_users - 1),
-                            }
-                            : null,
-                    )
+                    // Just a notification - don't modify state
+                    // The ROOM_STATS_UPDATE message will handle active_users count
+                    // The ROOM_STATE message will handle members list updates
                     break
 
                 case "ROOM_STATS_UPDATE":

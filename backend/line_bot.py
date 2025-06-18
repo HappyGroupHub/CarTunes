@@ -327,11 +327,32 @@ def handle_message(event):
 
         if message_received == "離開房間":
             if user_id in user_rooms:
-                del user_rooms[user_id]
-                unlink_rich_menu_from_user(user_id)
-                reply_message = TextMessage(text="已離開房間！")
+                room_id = user_rooms[user_id]
+                try:
+                    # Call API to leave room
+                    response = requests.delete(
+                        f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/leave",
+                        params={"user_id": user_id}
+                    )
+
+                    if response.status_code == 200:
+                        # Successfully left room
+                        del user_rooms[user_id]
+                        unlink_rich_menu_from_user(user_id)
+                        reply_message = TextMessage(
+                            text="成功離開房間！")
+                    else:
+                        # API call failed
+                        reply_message = TextMessage(text="離開房間時發生錯誤，請稍後再試！")
+
+                except Exception as e:
+                    print(f"Error leaving room: {e}")
+                    # Even if API fails, remove from local tracking
+                    del user_rooms[user_id]
+                    unlink_rich_menu_from_user(user_id)
+                    reply_message = TextMessage(text="成功離開房間！")
             else:
-                reply_message = TextMessage(text="您目前不在任何房間中。")
+                reply_message = TextMessage(text="您目前不在任何房間！")
 
             line_bot_api.reply_message(ReplyMessageRequest(
                 reply_token=event.reply_token, messages=[reply_message]))

@@ -383,16 +383,32 @@ async def create_room(
 
 
 @app.post("/api/room/join", response_model=RoomResponse)
-async def join_room(request: JoinRoomRequest):
+async def join_room(request_object: Request, request: JoinRoomRequest):
     """Join an existing room"""
+    # Only allow requests from localhost
+    client_ip = request_object.client.host
+    if client_ip != "127.0.0.1":
+        raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
+
     room = room_manager.join_room(
         room_id=request.room_id,
         user_id=request.user_id,
         user_name=request.user_name or "User"
     )
-
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
+
+    # Broadcast member update to active WebSocket connections
+    await ws_manager.broadcast_room_state(request.room_id, {
+        "room_id": room.room_id,
+        "members": [m.dict() for m in room.members],
+        "queue": [s.dict() for s in room.queue],
+        "current_song": room.current_song.dict() if room.current_song else None,
+        "playback_state": {
+            **room.playback_state.dict(),
+            "current_time": room_manager.get_current_playback_time(request.room_id)
+        }
+    })
 
     return RoomResponse(
         room_id=room.room_id,
@@ -433,12 +449,30 @@ async def get_room(room_id: str):
 
 
 @app.delete("/api/room/{room_id}/leave")
-async def leave_room(room_id: str, user_id: str = Query(...)):
+async def leave_room(request: Request, room_id: str, user_id: str = Query(...)):
     """Leave a room"""
-    success = room_manager.leave_room(room_id, user_id)
+    # Only allow requests from localhost
+    client_ip = request.client.host
+    if client_ip != "127.0.0.1":
+        raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
 
+    success = room_manager.leave_room(room_id, user_id)
     if not success:
         raise HTTPException(status_code=404, detail="Room not found")
+
+    # Broadcast updated room state to active WebSocket connections
+    room = room_manager.get_room(room_id)
+    if room:  # Room still exists (has other members)
+        await ws_manager.broadcast_room_state(room_id, {
+            "room_id": room.room_id,
+            "members": [m.dict() for m in room.members],
+            "queue": [s.dict() for s in room.queue],
+            "current_song": room.current_song.dict() if room.current_song else None,
+            "playback_state": {
+                **room.playback_state.dict(),
+                "current_time": room_manager.get_current_playback_time(room_id)
+            }
+        })
 
     return {"message": "Left room successfully"}
 
@@ -758,14 +792,10 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
     # Connect - pass room_manager instance
     await ws_manager.connect(websocket, room_id, user_id, room_manager)
 
-    # Update connection count
+    # Update connection count and broadcast to room
     connection_count = ws_manager.get_room_connection_count(room_id)
     room_manager.update_active_connections(room_id, connection_count)
-
-    # Get user info
-    member = next((m for m in room.members if m.user_id == user_id), None)
-    if member:
-        await ws_manager.broadcast_user_joined(room_id, user_id, member.user_name)
+    await ws_manager.broadcast_room_stats_update(room_id, connection_count)
 
     # Send current room state to the connected user
     await ws_manager.broadcast_room_state(room_id, {
@@ -814,14 +844,10 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
         room_id_disconnected, user_id_disconnected = ws_manager.disconnect(websocket, room_manager)
 
         if room_id_disconnected:
-            # Update connection count
+            # Update connection count and broadcast to room
             connection_count = ws_manager.get_room_connection_count(room_id_disconnected)
             room_manager.update_active_connections(room_id_disconnected, connection_count)
-
-            # Notify others
-            if member:
-                await ws_manager.broadcast_user_left(room_id_disconnected, user_id,
-                                                     member.user_name)
+            await ws_manager.broadcast_room_stats_update(room_id_disconnected, connection_count)
 
 
 if __name__ == "__main__":

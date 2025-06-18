@@ -178,6 +178,14 @@ class ConnectionManager:
         )
         await self.broadcast_to_room(room_id, message)
 
+    async def broadcast_room_stats_update(self, room_id: str, active_users: int):
+        """Broadcast room statistics update"""
+        message = WSMessage(
+            type=WSMessageType.ROOM_STATS_UPDATE,
+            data={"active_users": active_users}
+        )
+        await self.broadcast_to_room(room_id, message)
+
     async def broadcast_room_state(self, room_id: str, room_data: dict):
         """Send complete room state"""
         message = WSMessage(
