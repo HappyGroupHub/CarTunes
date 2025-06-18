@@ -442,7 +442,7 @@ def handle_message(event):
         # Handle URL messages to check if it's a valid YouTube link
         if utils.is_url(message_received):
             if not utils.is_youtube_url(message_received):
-                reply_message = TextMessage(text="❌ 目前僅支援 YouTube 連結點歌！\n")
+                reply_message = TextMessage(text="❌ 目前僅支援 YouTube 連結點歌！")
                 line_bot_api.reply_message(ReplyMessageRequest(
                     reply_token=event.reply_token, messages=[reply_message]))
                 return

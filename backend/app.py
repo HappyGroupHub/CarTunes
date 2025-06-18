@@ -476,17 +476,23 @@ async def add_song_to_queue(request_object: Request, room_id: str, request: AddS
     if not song_data['title']:
         raise HTTPException(status_code=400, detail="Invalid song data")
 
+    # Check if this will be the first song BEFORE adding
+    was_empty = not room.current_song and not room.playback_state.is_playing
+
     # Add song to the queue
     song = room_manager.add_song_to_queue(room_id, song_data, user_id, user_name)
     if not song:
         raise HTTPException(status_code=500, detail="Failed to add song")
 
-    # Check if this will be the first song
-    will_be_current_song = not room.current_song and not room.playback_state.is_playing
-    if not will_be_current_song:
-        await ws_manager.broadcast_song_added(room_id, song.dict())
-    else:
+    # Check if the song became current song AFTER adding
+    became_current_song = was_empty and room.current_song and room.current_song.id == song.id
+
+    if became_current_song:
+        # Send SONG_CHANGED for first song that becomes current
         await ws_manager.broadcast_song_changed(room_id, song.dict())
+    else:
+        # Send SONG_ADDED for songs added to queue
+        await ws_manager.broadcast_song_added(room_id, song.dict())
 
     # Start preloading in background (non-blocking)
     upcoming_video_ids = [s.video_id for s in room.queue[:5]]

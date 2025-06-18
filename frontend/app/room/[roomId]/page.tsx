@@ -196,12 +196,13 @@ export default function RoomPage() {
                             ? {
                                 ...prev,
                                 current_song: data.data.current_song,
-                                // FIXED: Reset current_time when song changes
+                                // Reset current_time when song changes
                                 playback_state: {
                                     ...prev.playback_state,
                                     current_time: 0,
-                                    // FIXED: Set is_playing to false when no current song
-                                    is_playing: data.data.current_song ? prev.playback_state.is_playing : false,
+                                    // If there's a new current song and user has interacted, it should be playing
+                                    // If no current song, then not playing
+                                    is_playing: data.data.current_song ? true : false,
                                 },
                             }
                             : null,
@@ -213,7 +214,7 @@ export default function RoomPage() {
                         loadAudioForCurrentSong(
                             data.data.current_song.video_id,
                             0, // Start from beginning
-                            true, // Should be playing since this is a skip action
+                            true, // Should be playing since this is a song change (from skip or new song added)
                             currentUserInteracted,
                         )
                     } else if (!data.data.current_song && audioRef.current) {
