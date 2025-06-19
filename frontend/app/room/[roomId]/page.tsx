@@ -163,12 +163,15 @@ export default function RoomPage() {
             switch (messageType) {
                 case "ROOM_STATE":
                     const roomData = data.data.room
+                    const previousSong = roomRef.current?.current_song
+                    const newSong = roomData.current_song
+
                     setRoom((prev) => ({
                         room_id: roomData.room_id,
                         members: roomData.members,
                         queue: roomData.queue,
                         current_song: roomData.current_song,
-                        // FIXED: Preserve current_time if song is the same and currently playing
+                        // Preserve current_time if song is the same and currently playing
                         playback_state:
                             prev?.current_song?.id === roomData.current_song?.id && prev?.playback_state.is_playing
                                 ? {
@@ -179,14 +182,19 @@ export default function RoomPage() {
                         active_users: prev?.active_users || 0,
                     }))
 
-                    if (roomData.current_song && audioRef.current) {
+                    // Only reload audio if the current song actually changed
+                    const songChanged = previousSong?.id !== newSong?.id
+
+                    if (songChanged && newSong && audioRef.current) {
+                        // Song actually changed, reload audio
                         loadAudioForCurrentSong(
-                            roomData.current_song.video_id,
+                            newSong.video_id,
                             roomData.playback_state.current_time || 0,
                             roomData.playback_state.is_playing || false,
                             currentUserInteracted,
                         )
                     }
+                    // If song didn't change, don't reload audio
                     break
 
                 case "SONG_CHANGED":
@@ -202,7 +210,7 @@ export default function RoomPage() {
                                     current_time: 0,
                                     // If there's a new current song and user has interacted, it should be playing
                                     // If no current song, then not playing
-                                    is_playing: data.data.current_song ? true : false,
+                                    is_playing: !!data.data.current_song,
                                 },
                             }
                             : null,
