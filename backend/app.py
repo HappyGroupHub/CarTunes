@@ -480,9 +480,9 @@ async def leave_room(request: Request, room_id: str, user_id: str = Query(...)):
 # ===== Queue Endpoints =====
 
 @app.post("/api/room/{room_id}/queue/add", response_model=AddSongResponse)
-async def add_song_to_queue(request_object: Request, room_id: str, request: AddSongRequest,
-                            user_id: str = Query(...), user_name: str = Query("User")):
-    """Add a song to the queue, receiving only from internal calls (line_bot.py)"""
+async def add_song_to_queue(room_id: str, request: AddSongRequest, user_id: str = Query(...),
+                            user_name: str = Query(...), request_object: Request = Request):
+    """Add a song to the queue, only for internal calls (called by line_bot.py)"""
     # Only allow requests from localhost
     client_ip = request_object.client.host
     if client_ip != "127.0.0.1":
@@ -505,6 +505,9 @@ async def add_song_to_queue(request_object: Request, room_id: str, request: AddS
     # Basic validation only, since we did it already in line_bot.py
     if not song_data['title']:
         raise HTTPException(status_code=400, detail="Invalid song data")
+
+    # Refresh cache timer if song already exists in cache
+    audio_cache.refresh_cache_timer(request.video_id)
 
     # Check if this will be the first song BEFORE adding
     was_empty = not room.current_song and not room.playback_state.is_playing

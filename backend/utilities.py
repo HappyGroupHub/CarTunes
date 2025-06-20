@@ -29,10 +29,26 @@ line_webhook_port: 5001
 frontend_url: 'https://cartunes.playfuni.net'
 
 
-# --- Rooms and Playback Settings ---
+# --- Song Streaming/Caching Settings ---
+
 # Song length limit in seconds. Default is 30 minutes (1800 seconds).
 # Shows an error if the song exceeds this limit.
 song_length_limit: 1800
+
+# Audio bitrate for downloaded songs (lower = smaller files, lower quality)
+# Default is 96 kbps for good balance of quality and file size.
+audio_quality_kbps: 96
+
+# Song cache settings
+# Maximum cache folder size in MB. Default is 300MB.
+max_cache_size_mb: 300
+
+# Cache duration in hours. Songs will be deleted after this time since last order.
+# Default is 1 hour.
+cache_duration_hours: 1
+
+
+# --- Rooms Broadcast/Cleanup Settings ---
 
 # Pause music if no active websocket connections for this many seconds.
 # Default is 10 seconds.
@@ -75,6 +91,9 @@ def read_config():
                 'line_webhook_port': data['line_webhook_port'],
                 'frontend_url': data['frontend_url'],
                 'song_length_limit': data['song_length_limit'],
+                'audio_quality_kbps': data['audio_quality_kbps'],
+                'max_cache_size_mb': data['max_cache_size_mb'],
+                'cache_duration_hours': data['cache_duration_hours'],
                 'pause_music_after_no_connections': data['pause_music_after_no_connections'],
                 'room_cleanup_after_inactivity': data['room_cleanup_after_inactivity'],
                 'progress_broadcast_interval': data['progress_broadcast_interval']
