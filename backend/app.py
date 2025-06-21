@@ -523,6 +523,14 @@ async def add_song_to_queue(room_id: str, request: AddSongRequest, user_id: str 
     if became_current_song:
         # Send SONG_CHANGED for first song that becomes current
         await ws_manager.broadcast_song_changed(room_id, song.dict())
+
+        # Also broadcast playback state if room should be playing
+        if room.playback_state.is_playing:
+            await ws_manager.broadcast_playback_state(
+                room_id,
+                room.playback_state.is_playing,
+                room.playback_state.current_time
+            )
     else:
         # Send SONG_ADDED for songs added to queue
         await ws_manager.broadcast_song_added(room_id, song.dict())

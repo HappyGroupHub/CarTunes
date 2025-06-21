@@ -198,31 +198,30 @@ export default function RoomPage() {
                     break
 
                 case "SONG_CHANGED":
-                    console.log("Song changed:", data.data.current_song)
-                    setRoom((prev) =>
-                        prev
-                            ? {
-                                ...prev,
-                                current_song: data.data.current_song,
-                                // Reset current_time when song changes
-                                playback_state: {
-                                    ...prev.playback_state,
-                                    current_time: 0,
-                                    // If there's a new current song and user has interacted, it should be playing
-                                    // If no current song, then not playing
-                                    is_playing: !!data.data.current_song,
-                                },
-                            }
-                            : null,
-                    )
+                    setRoom((prev) => {
+                        if (!prev) return null
+
+                        return {
+                            ...prev,
+                            current_song: data.data.current_song,
+                            // Reset current_time when song changes
+                            playback_state: {
+                                ...prev.playback_state,
+                                current_time: 0,
+                                // Don't automatically set to playing - let the backend decide
+                                // The backend will send a separate PLAYBACK_STATE_CHANGED message if needed
+                            },
+                        }
+                    })
 
                     // Handle both new song and no song cases
                     if (data.data.current_song && audioRef.current) {
                         // Load new audio when song changes to a new song
+                        // Don't auto-play - wait for user interaction or backend playback state
                         loadAudioForCurrentSong(
                             data.data.current_song.video_id,
                             0, // Start from beginning
-                            true, // Should be playing since this is a song change (from skip or new song added)
+                            false, // Don't auto-play - let backend control this
                             currentUserInteracted,
                         )
                     } else if (!data.data.current_song && audioRef.current) {
@@ -276,29 +275,7 @@ export default function RoomPage() {
                     )
                     break
 
-                case "PLAYBACK_STARTED":
-                    setRoom((prev) =>
-                        prev
-                            ? {
-                                ...prev,
-                                playback_state: {
-                                    ...prev.playback_state,
-                                    is_playing: true,
-                                    current_time: data.data.current_time || prev.playback_state.current_time,
-                                },
-                            }
-                            : null,
-                    )
-                    // Handle audio playback
-                    if (audioRef.current && currentUserInteracted) {
-                        if (data.data.current_time !== undefined) {
-                            audioRef.current.currentTime = data.data.current_time
-                        }
-                        audioRef.current.play().catch((e) => console.error("Autoplay blocked on PLAYBACK_STARTED:", e))
-                    }
-                    break
-
-                case "PLAYBACK_PAUSED":
+                case "PLAYBACK_STATE_CHANGED":
                     console.log("Playback state changed:", data.data)
                     const newIsPlaying = data.data.is_playing
                     const newCurrentTime = data.data.current_time
@@ -316,14 +293,35 @@ export default function RoomPage() {
                             : null,
                     )
 
-                    // FIXED: Only sync audio if there's a significant time difference or if this is from a skip
-                    // Don't interfere with user's play/pause actions
-                    if (audioRef.current) {
-                        // Check if audioRef.current exists
-                        audioRef.current.pause() // Explicitly pause the audio element
-                        if (newCurrentTime !== undefined) {
-                            // Only sync time if there's a significant difference (more than 2 seconds)
-                            if (Math.abs(audioRef.current.currentTime - newCurrentTime) > 2) {
+                    // Handle audio playback sync
+                    if (audioRef.current && currentRoom?.current_song) {
+                        if (newIsPlaying) {
+                            // Backend wants audio to play
+                            if (currentUserInteracted) {
+                                // Set time first if provided
+                                if (newCurrentTime !== undefined && Math.abs(audioRef.current.currentTime - newCurrentTime) > 2) {
+                                    audioRef.current.currentTime = newCurrentTime
+                                }
+
+                                // Try to play, but handle the case where audio might not be ready
+                                const playPromise = audioRef.current.play()
+                                if (playPromise !== undefined) {
+                                    playPromise.catch(err => {
+                                        console.log("Play failed, probably audio not ready yet:", err)
+                                        // If play fails, try again after a short delay
+                                        setTimeout(() => {
+                                            if (audioRef.current && roomRef.current?.playback_state.is_playing) {
+                                                audioRef.current.play().catch(e => console.log("Retry play failed:", e))
+                                            }
+                                        }, 500)
+                                    })
+                                }
+                            }
+                            // If user hasn't interacted, we can't auto-play due to browser restrictions
+                        } else {
+                            // Backend wants audio to pause
+                            audioRef.current.pause()
+                            if (newCurrentTime !== undefined && Math.abs(audioRef.current.currentTime - newCurrentTime) > 2) {
                                 audioRef.current.currentTime = newCurrentTime
                             }
                         }
@@ -371,15 +369,90 @@ export default function RoomPage() {
                     )
                     break
 
+                case "PLAYBACK_STARTED":
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                playback_state: {
+                                    ...prev.playback_state,
+                                    is_playing: true,
+                                    current_time: data.data.current_time || prev.playback_state.current_time,
+                                },
+                            }
+                            : null,
+                    )
+                    // Handle audio playback - check if audio is ready first
+                    if (audioRef.current && currentUserInteracted) {
+                        if (data.data.current_time !== undefined) {
+                            audioRef.current.currentTime = data.data.current_time
+                        }
+
+                        // Check if audio is ready to play
+                        if (audioRef.current.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                            // Audio is ready, play immediately
+                            audioRef.current.play().catch((e) => console.error("Autoplay blocked on PLAYBACK_STARTED:", e))
+                        } else {
+                            // Audio not ready yet, wait for it to load
+                            const handleCanPlay = () => {
+                                if (audioRef.current && roomRef.current?.playback_state.is_playing) {
+                                    audioRef.current.play().catch((e) => console.error("Delayed autoplay blocked:", e))
+                                }
+                                audioRef.current?.removeEventListener('canplay', handleCanPlay)
+                            }
+                            audioRef.current.addEventListener('canplay', handleCanPlay)
+                        }
+                    }
+                    break
+
+                case "PLAYBACK_PAUSED":
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                playback_state: {
+                                    ...prev.playback_state,
+                                    is_playing: false,
+                                    current_time: data.data.current_time !== undefined ? data.data.current_time : prev.playback_state.current_time,
+                                },
+                            }
+                            : null,
+                    )
+                    // Handle audio pause
+                    if (audioRef.current) {
+                        audioRef.current.pause()
+                        if (data.data.current_time !== undefined && Math.abs(audioRef.current.currentTime - data.data.current_time) > 2) {
+                            audioRef.current.currentTime = data.data.current_time
+                        }
+                    }
+                    break
+
                 case "PLAYBACK_PROGRESS":
                     // Update current time without triggering re-render if the difference is small
                     setCurrentTime(data.data.current_time)
-                    // Only update audio element's currentTime if there's a significant drift
-                    if (audioRef.current && Math.abs(audioRef.current.currentTime - data.data.current_time) > 1) {
-                        console.log(
-                            `Resyncing audio element: local ${audioRef.current.currentTime.toFixed(2)}, remote ${data.data.current_time.toFixed(2)}`,
-                        )
-                        audioRef.current.currentTime = data.data.current_time
+
+                    // Smart logic: If backend is sending progress > 0, music should be playing
+                    if (audioRef.current && data.data.current_time > 0) {
+                        const isActuallyPlaying = !audioRef.current.paused
+
+                        if (!isActuallyPlaying && currentUserInteracted) {
+                            // Backend is progressing but local audio isn't playing - start immediately
+                            console.log("Backend is progressing but audio not playing - starting immediately")
+                            audioRef.current.currentTime = data.data.current_time
+                            audioRef.current.play().catch(e => console.log("Failed to start audio on progress:", e))
+                        } else if (isActuallyPlaying && Math.abs(audioRef.current.currentTime - data.data.current_time) > 2) {
+                            // Audio is playing but significantly out of sync - resync
+                            console.log(
+                                `Resyncing playing audio: local ${audioRef.current.currentTime.toFixed(2)}, remote ${data.data.current_time.toFixed(2)}`,
+                            )
+                            audioRef.current.currentTime = data.data.current_time
+                        }
+                        // If audio is playing and in sync, don't interfere
+                    } else if (audioRef.current && data.data.current_time === 0) {
+                        // Backend is at the beginning, sync time but don't force play
+                        if (Math.abs(audioRef.current.currentTime - data.data.current_time) > 1) {
+                            audioRef.current.currentTime = data.data.current_time
+                        }
                     }
                     break
 

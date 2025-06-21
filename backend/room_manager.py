@@ -157,13 +157,23 @@ class RoomManager:
 
         room.queue.append(song)
 
-        # If no current song, set this as current
-        if not room.current_song and not room.playback_state.is_playing:
+        # Check if room has no current song
+        if not room.current_song:
             room.current_song = room.queue.pop(0)
-            room.playback_state.is_playing = False
             room.playback_state.current_time = 0.0
             room.playback_state.last_update = datetime.now()
             self._update_queue_positions(room)
+
+            # Only set to playing if room was previously playing
+            # Room ran out of music vs newly created room
+            # We determine this by checking if the room ever had a playing state
+            # For newly created rooms, we track if they've ever been set to playing
+            if hasattr(room, '_has_ever_played') and room._has_ever_played:
+                # Room ran out of music and is getting a new song - start playing
+                room.playback_state.is_playing = True
+            else:
+                # Newly created room - don't auto-play
+                room.playback_state.is_playing = False
 
         # Update activity
         room.last_activity = datetime.now()
@@ -180,8 +190,10 @@ class RoomManager:
         if room.queue:
             room.current_song = room.queue.pop(0)
             room.playback_state.current_time = 0.0
-            room.playback_state.is_playing = True  # FIXED: Set to playing when new song starts
+            room.playback_state.is_playing = True  # Always start playing when skipping
             room.playback_state.last_update = datetime.now()
+            # Mark that room has been played
+            room._has_ever_played = True
             self._update_queue_positions(room)
         else:
             room.current_song = None
@@ -203,6 +215,10 @@ class RoomManager:
         if current_time is not None:
             room.playback_state.current_time = current_time
         room.playback_state.last_update = datetime.now()
+
+        # Track that this room has been played at least once
+        if is_playing:
+            room._has_ever_played = True
 
         # Update activity
         room.last_activity = datetime.now()
