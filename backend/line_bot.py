@@ -152,7 +152,7 @@ def create_search_results_carousel(search_results: list, user_input: str, page: 
         estimated_length = estimate_postback_length(video_id, title, artist, duration, thumbnail)
 
         # Use cache if postback data would be too long
-        if estimated_length > 300:
+        if estimated_length > 290:  # 300 characters is the limit for postback data
             store_in_cache(video_id, result)
             postback_data = f"add_song_cached:{video_id}"
         else:
