@@ -25,14 +25,18 @@ class RoomManager:
     # ===== Room Creation =====
 
     def generate_room_id(self) -> str:
-        """Generate a unique 6-character room ID
-
-        Contains only uppercase letters and numbers, excluding I, O, 0, 1 for readability.
-        """
-        while True:
-            room_id = ''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(6))
-            if room_id not in self.rooms:
-                return room_id
+        """Generate a unique 6-character room ID"""
+        if config['numeric_room_code']:  # Use numeric codes only
+            while True:
+                room_id = ''.join(secrets.choice('0123456789') for _ in range(6))
+                if room_id not in self.rooms:
+                    return room_id
+        else:  # Contains only uppercase letters and numbers, excluding I, O, 0, 1 for readability.
+            while True:
+                room_id = ''.join(
+                    secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(6))
+                if room_id not in self.rooms:
+                    return room_id
 
     def create_room(self, user_id: str, user_name: str = "User") -> Room:
         """Create a new room (called from LINE bot)"""

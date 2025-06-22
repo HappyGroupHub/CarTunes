@@ -50,6 +50,11 @@ cache_duration_hours: 1
 
 # --- Rooms Broadcast/Cleanup Settings ---
 
+# Room's code generation logic, 6-digit code.
+# Default is false, using random alphanumeric code, For example, ABC123.
+# If set to true, it will only use a numeric code, For example, 123456.
+numeric_room_code: false
+
 # Pause music if no active websocket connections for this many seconds.
 # Default is 10 seconds.
 pause_music_after_no_connections: 10
@@ -94,6 +99,7 @@ def read_config():
                 'audio_quality_kbps': data['audio_quality_kbps'],
                 'max_cache_size_mb': data['max_cache_size_mb'],
                 'cache_duration_hours': data['cache_duration_hours'],
+                'numeric_room_code': data['numeric_room_code'],
                 'pause_music_after_no_connections': data['pause_music_after_no_connections'],
                 'room_cleanup_after_inactivity': data['room_cleanup_after_inactivity'],
                 'progress_broadcast_interval': data['progress_broadcast_interval']
