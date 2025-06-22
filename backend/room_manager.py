@@ -8,6 +8,8 @@ import secrets
 from datetime import datetime
 from typing import Dict, Optional, List
 
+import requests
+
 import utilities as utils
 from models import Room, Member, Song, PlaybackState
 
@@ -368,10 +370,16 @@ class RoomManager:
                 # Remove user mappings and rich menus
                 for member in room.members:
                     self.user_rooms.pop(member.user_id, None)
-                    try:
-                        from line_bot import unlink_rich_menu_from_user, user_rooms
-                        if member.user_id in user_rooms:
-                            del user_rooms[member.user_id]
+                    try:  # Remove local user_rooms mappings for line_bot.py
+                        response = requests.delete(
+                            f"http://localhost:{config['line_webhook_port']}/api/room/leave",
+                            params={"user_id": member.user_id}
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error removing user {member.user_id} from room {room_id}: {e}")
+                    try:  # Unlink rich menu from user
+                        from line_bot import unlink_rich_menu_from_user
                         unlink_rich_menu_from_user(member.user_id)
                     except Exception as e:
                         logger.error(f"Error removing rich menu for user {member.user_id}: {e}")

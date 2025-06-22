@@ -85,7 +85,7 @@ def estimate_postback_length(video_id: str, title: str, artist: str, duration: s
     return len(postback_data)
 
 
-# ===== Call Internal Endpoints =====
+# ===== Call/Receive Internal Endpoints =====
 
 def create_room_via_api(user_id: str, user_name: str):
     """Create a room via internal API call."""
@@ -128,6 +128,13 @@ def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name: str, 
     except Exception as e:
         print(f"Error adding song: {e}")
         return None
+
+
+@app.delete("/api/room/leave")
+def leave_room(user_id: str):
+    """Leave room endpoint to remove user_rooms locally."""
+    if user_id in user_rooms:
+        del user_rooms[user_id]
 
 
 # ===== Handel Message Event =====
@@ -403,13 +410,11 @@ def handle_message(event):
                     user_rooms[user_id] = room_id  # Track user's room
                     reply_message = TextMessage(
                         text=f"房間加入成功！🎉\n" \
-                             f"現在您可以直接在此聊天室搜尋和新增歌曲了！點擊下方的區域進入網頁播放器，隨時插歌" \
-                             f"或是刪除不想要的歌曲～\n\n" \
-                             f"🎵 想邀請朋友一起聽歌？\n" \
-                             f"您現在可以直接分享此訊息給朋友，他們只要將此訊息轉發給本官方帳號，" \
-                             f"就能自動加入您的房間與一起同樂！\n\n" \
-                             f"房間代碼：{room_id}\n" \
-                             f"🎶 一起來創造美好的音樂時光！")
+                             f"現在您可以在聊天室搜尋歌曲並新增\n" \
+                             f"或直接貼上 YouTube 連結點歌\n\n" \
+                             f"🎵 點擊下方區域進入網頁播放器\n"
+                             f"隨時插歌或是刪除不想要的歌曲～\n\n" \
+                             f"房間代碼：{room_id}")
                 else:
                     reply_message = TextMessage(
                         text="❌ 錯誤的房間代碼！\n"
@@ -453,9 +458,9 @@ def handle_message(event):
 
         # After all check, if user is not in a room, ask them to create or join one
         if user_id not in user_rooms:
-            reply_message = TextMessage(text="請先加入/創建房間才能新增歌曲！\n"
+            reply_message = TextMessage(text="請先加入/創建房間！\n"
                                              "打開下方面版並點擊「創建房間」\n"
-                                             "或轉發朋友的訊息至此即可加入房間～")
+                                             "或轉發朋友的訊息至此「加入房間」")
             line_bot_api.reply_message(ReplyMessageRequest(
                 reply_token=event.reply_token, messages=[reply_message]))
             return
