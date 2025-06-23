@@ -371,7 +371,7 @@ class RoomManager:
                 for member in room.members:
                     self.user_rooms.pop(member.user_id, None)
                     try:  # Remove local user_rooms mappings for line_bot.py
-                        response = requests.delete(
+                        requests.delete(
                             f"http://localhost:{config['line_webhook_port']}/api/room/leave",
                             params={"user_id": member.user_id}
                         )

@@ -131,8 +131,13 @@ def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name: str, 
 
 
 @app.delete("/api/room/leave")
-def leave_room(user_id: str):
+def leave_room(request: Request, user_id: str):
     """Leave room endpoint to remove user_rooms locally."""
+    # Only allow requests from localhost
+    client_ip = request.client.host
+    if client_ip != "127.0.0.1":
+        raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
+
     if user_id in user_rooms:
         del user_rooms[user_id]
 
