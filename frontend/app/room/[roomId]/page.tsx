@@ -100,6 +100,11 @@ export default function RoomPage() {
     const touchCurrentX = useRef(0)
     const swipeThreshold = 50 // Pixels to swipe to reveal delete button
 
+    // State for audio status checking
+    const [audioStatusChecking, setAudioStatusChecking] = useState<Set<string>>(new Set())
+    const audioStatusCheckingRef = useRef<Set<string>>(new Set())
+    const statusCheckIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
+
     useEffect(() => {
         roomRef.current = room
     }, [room])
@@ -224,6 +229,11 @@ export default function RoomPage() {
                             false, // Don't auto-play - let backend control this
                             currentUserInteracted,
                         )
+
+                        // START STATUS CHECK IMMEDIATELY when new song appears
+                        console.log("New song detected, starting status check")
+                        checkAudioStatus(data.data.current_song.video_id)
+
                     } else if (!data.data.current_song && audioRef.current) {
                         // Pause and clear audio when no current song
                         audioRef.current.pause()
@@ -428,30 +438,53 @@ export default function RoomPage() {
                     break
 
                 case "PLAYBACK_PROGRESS":
-                    // Update current time without triggering re-render if the difference is small
-                    setCurrentTime(data.data.current_time)
+                    const progressTime = data.data.current_time
 
-                    // Smart logic: If backend is sending progress > 0, music should be playing
-                    if (audioRef.current && data.data.current_time > 0) {
+                    // Handle negative time (loading delay) - show 0:00
+                    if (progressTime < 0) {
+                        setCurrentTime(0)  // Always show 0 for negative time
+
+                        // Status check should already be running from SONG_CHANGED
+                        // No need to start it again here
+                        break
+                    }
+
+                    // Normal positive time - update as usual
+                    setCurrentTime(progressTime)
+
+                    // Smart logic: If backend just reached 0 from negative, try to start audio
+                    if (audioRef.current && progressTime >= 0 && progressTime < 0.5 && currentRoom?.current_song) {
+                        const isActuallyPlaying = !audioRef.current.paused
+                        const videoId = currentRoom.current_song.video_id
+
+                        // Stop status checking if still active (audio should be ready now)
+                        if (audioStatusCheckingRef.current.has(videoId)) {
+                            const interval = statusCheckIntervalsRef.current.get(videoId)
+                            if (interval) {
+                                clearInterval(interval)
+                                statusCheckIntervalsRef.current.delete(videoId)
+                            }
+                            audioStatusCheckingRef.current.delete(videoId)
+                            setSongDownloading(false) // Clear downloading state
+                        }
+
+                        if (!isActuallyPlaying && currentUserInteracted && !songDownloading) {
+                            // Backend reached 0 and audio should be ready - start playing
+                            console.log("Backend reached 0, starting audio")
+                            audioRef.current.currentTime = progressTime
+                            audioRef.current.play().catch(e => console.log("Failed to start audio at 0:", e))
+                        }
+                    } else if (audioRef.current && progressTime > 0.5) {
+                        // Normal sync logic for positive times
                         const isActuallyPlaying = !audioRef.current.paused
 
-                        if (!isActuallyPlaying && currentUserInteracted) {
-                            // Backend is progressing but local audio isn't playing - start immediately
-                            console.log("Backend is progressing but audio not playing - starting immediately")
-                            audioRef.current.currentTime = data.data.current_time
-                            audioRef.current.play().catch(e => console.log("Failed to start audio on progress:", e))
-                        } else if (isActuallyPlaying && Math.abs(audioRef.current.currentTime - data.data.current_time) > 2) {
-                            // Audio is playing but significantly out of sync - resync
-                            console.log(
-                                `Resyncing playing audio: local ${audioRef.current.currentTime.toFixed(2)}, remote ${data.data.current_time.toFixed(2)}`,
-                            )
-                            audioRef.current.currentTime = data.data.current_time
-                        }
-                        // If audio is playing and in sync, don't interfere
-                    } else if (audioRef.current && data.data.current_time === 0) {
-                        // Backend is at the beginning, sync time but don't force play
-                        if (Math.abs(audioRef.current.currentTime - data.data.current_time) > 1) {
-                            audioRef.current.currentTime = data.data.current_time
+                        if (!isActuallyPlaying && currentUserInteracted && roomRef.current?.playback_state.is_playing && !songDownloading) {
+                            console.log("Audio should be playing but isn't - starting")
+                            audioRef.current.currentTime = progressTime
+                            audioRef.current.play().catch(e => console.log("Failed to start stalled audio:", e))
+                        } else if (isActuallyPlaying && Math.abs(audioRef.current.currentTime - progressTime) > 2) {
+                            console.log(`Resyncing playing audio: local ${audioRef.current.currentTime.toFixed(2)}, remote ${progressTime.toFixed(2)}`)
+                            audioRef.current.currentTime = progressTime
                         }
                     }
                     break
@@ -475,6 +508,78 @@ export default function RoomPage() {
         [loadAudioForCurrentSong, setErrorMessage, setShowErrorModal],
     )
 
+    const checkAudioStatus = useCallback(async (videoId: string) => {
+        if (audioStatusCheckingRef.current.has(videoId)) {
+            return // Already checking this video
+        }
+
+        console.log(`Starting status check for ${videoId} in room ${roomId}`)
+
+        audioStatusCheckingRef.current.add(videoId)
+        setAudioStatusChecking(prev => new Set([...prev, videoId]))
+
+        const checkStatus = async () => {
+            try {
+                const url = API_ENDPOINTS.AUDIO_STATUS(videoId, roomId)
+                console.log(`Checking status at: ${url}`)
+
+                const response = await fetch(url)
+                console.log(`Status response:`, response.status, response.ok)
+
+                if (response.ok) {
+                    const data = await response.json()
+                    console.log(`Status data:`, data)
+
+                    if (data.status === "downloading") {
+                        setSongDownloading(true)
+                        setAudioLoading(false)
+                        setAudioError(null)
+                        return false
+                    } else if (data.status === "ready") {
+                        // Audio is ready - IMMEDIATELY clear checking state
+                        console.log(`✅ Audio ready for ${videoId}, clearing status check`)
+
+                        // Clear interval and tracking
+                        const interval = statusCheckIntervalsRef.current.get(videoId)
+                        if (interval) {
+                            clearInterval(interval)
+                            statusCheckIntervalsRef.current.delete(videoId)
+                        }
+
+                        audioStatusCheckingRef.current.delete(videoId)
+                        setAudioStatusChecking(prev => {
+                            const newSet = new Set(prev)
+                            newSet.delete(videoId)
+                            return newSet
+                        })
+
+                        setSongDownloading(false)
+                        return true
+                    }
+                } else {
+                    console.error(`Status check failed with status:`, response.status)
+                }
+            } catch (error) {
+                console.error(`Status check failed for ${videoId}:`, error)
+            }
+            return false
+        }
+
+        // Check immediately
+        const isReady = await checkStatus()
+        if (isReady) return
+
+        // If not ready, poll every 1 second
+        const interval = setInterval(async () => {
+            const ready = await checkStatus()
+            if (ready) {
+                clearInterval(interval)
+                statusCheckIntervalsRef.current.delete(videoId)
+            }
+        }, 1000)
+        statusCheckIntervalsRef.current.set(videoId, interval)
+    }, [roomId])
+
     const {isConnected, connectionStatus} = useWebSocket({
         url: `${API_ENDPOINTS.WEBSOCKET(roomId)}?user_id=${userId}`,
         onMessage: handleWebSocketMessage,
@@ -494,63 +599,16 @@ export default function RoomPage() {
     })
 
     useEffect(() => {
-        checkRoomExists()
-    }, [roomId])
+        return () => {
+            // Cleanup status checking intervals
+            statusCheckIntervalsRef.current.forEach(interval => clearInterval(interval))
+            statusCheckIntervalsRef.current.clear()
+        }
+    }, [])
 
     useEffect(() => {
-        let downloadStatusInterval: NodeJS.Timeout | null = null
-        if (room?.current_song) {
-            checkDownloadStatus(room.current_song.video_id)
-
-            downloadStatusInterval = setInterval(() => {
-                checkDownloadStatus(room.current_song!.video_id)
-            }, 2000)
-        } else {
-            setSongDownloading(false)
-            if (downloadStatusInterval) {
-                clearInterval(downloadStatusInterval)
-            }
-        }
-
-        return () => {
-            if (downloadStatusInterval) {
-                clearInterval(downloadStatusInterval)
-            }
-        }
-    }, [room, loadAudioForCurrentSong])
-
-    async function checkDownloadStatus(videoId: string) {
-        try {
-            const response = await fetch(`${API_ENDPOINTS.BASE_URL}/api/audio/${videoId}/status`)
-            if (response.ok) {
-                const status = await response.json()
-                setSongDownloading(status.is_downloading)
-
-                if (
-                    status.status === "ready" &&
-                    audioRef.current &&
-                    audioRef.current.src !== API_ENDPOINTS.AUDIO_STREAM(videoId)
-                ) {
-                    console.log(`Download status: ready. Loading audio for ${videoId}.`)
-                    if (roomRef.current && roomRef.current.current_song) {
-                        await loadAudioForCurrentSong(
-                            videoId,
-                            roomRef.current.playback_state.current_time,
-                            roomRef.current.playback_state.is_playing,
-                            hasUserInteractedWithPlayButtonRef.current,
-                        )
-                    } else {
-                        await loadAudioForCurrentSong(videoId, 0, false, hasUserInteractedWithPlayButtonRef.current)
-                    }
-                }
-            } else if (response.status === 404) {
-                setSongDownloading(false)
-            }
-        } catch (error) {
-            console.error("Error checking download status:", error)
-            setSongDownloading(false)
-        }
-    }
+        checkRoomExists()
+    }, [roomId])
 
     async function checkRoomExists() {
         try {
@@ -759,12 +817,12 @@ export default function RoomPage() {
     // This useEffect will manage the local progress bar update
     useEffect(() => {
         if (room?.playback_state.is_playing) {
-            // Initialize currentTime with the backend's current_time when playback starts or song changes
-            setCurrentTime(room.playback_state.current_time)
+            // Initialize currentTime but never show negative
+            setCurrentTime(Math.max(0, room.playback_state.current_time))
 
             // Start a local interval to increment currentTime
             progressIntervalRef.current = setInterval(() => {
-                setCurrentTime((prevTime) => prevTime + 1) // Increment by 1 second
+                setCurrentTime((prevTime) => Math.max(0, prevTime + 1)) // Never go negative
             }, 1000)
         } else {
             // If not playing, clear the interval
@@ -772,9 +830,9 @@ export default function RoomPage() {
                 clearInterval(progressIntervalRef.current)
                 progressIntervalRef.current = null
             }
-            // When paused, ensure currentTime reflects the last known backend time
+            // When paused, ensure currentTime reflects the last known backend time (but not negative)
             if (room) {
-                setCurrentTime(room.playback_state.current_time)
+                setCurrentTime(Math.max(0, room.playback_state.current_time))
             }
         }
 
@@ -997,25 +1055,31 @@ export default function RoomPage() {
                                 </div>
 
                                 {/* Audio Status Indicators */}
-                                {(songDownloading || audioLoading || audioError) && (
+                                {(songDownloading || audioLoading || audioError || (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))) && (
                                     <div className="flex items-center justify-center space-x-2 mt-2 mb-2 text-sm">
                                         {songDownloading && (
                                             <span className="text-blue-400 flex items-center">
-                        <Download className="h-4 w-4 animate-bounce mr-1" strokeWidth={2}/>
-                        歌曲載入中...
-                      </span>
+                <Download className="h-4 w-4 animate-bounce mr-1" strokeWidth={2}/>
+                音訊載入中...
+            </span>
                                         )}
-                                        {audioLoading && !songDownloading && (
+                                        {(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && !songDownloading && (
+                                            <span className="text-yellow-400 flex items-center">
+                <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
+                檢查音訊狀態...
+            </span>
+                                        )}
+                                        {audioLoading && !songDownloading && !(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && (
                                             <span className="text-white/60 flex items-center">
-                        <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
-                        音訊載入中...
-                      </span>
+                <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
+                音訊載入中...
+            </span>
                                         )}
                                         {audioError && !songDownloading && (
                                             <span className="text-red-400 flex items-center">
-                        <AlertCircle className="h-4 w-4 mr-1" strokeWidth={2}/>
+                <AlertCircle className="h-4 w-4 mr-1" strokeWidth={2}/>
                                                 {audioError}
-                      </span>
+            </span>
                                         )}
                                     </div>
                                 )}
@@ -1026,7 +1090,7 @@ export default function RoomPage() {
                                     <div className="flex-1">
                                         <Progress value={progress} className="h-1"/>
                                         <div className="flex justify-between text-white/60 text-xs mt-0.5">
-                                            <span>{formatTime(Math.floor(currentTime))}</span>
+                                            <span>{formatTime(Math.floor(Math.max(0, currentTime)))}</span>
                                             <span>{formatTime(room.current_song.duration)}</span>
                                         </div>
                                     </div>
@@ -1035,7 +1099,12 @@ export default function RoomPage() {
                                         <div className="flex items-center space-x-2 -mt-4">
                                             <Button
                                                 onClick={togglePlayback}
-                                                disabled={audioLoading || !!audioError || songDownloading}
+                                                disabled={
+                                                    audioLoading ||
+                                                    !!audioError ||
+                                                    songDownloading ||
+                                                    (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))
+                                                }
                                                 size="icon"
                                                 className="bg-white/20 hover:bg-white/30 text-white rounded-full w-10 h-10 disabled:opacity-50 disabled:cursor-not-allowed"
                                             >

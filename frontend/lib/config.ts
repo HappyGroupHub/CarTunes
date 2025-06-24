@@ -6,7 +6,6 @@ export const API_CONFIG = {
 
 // LINE Configuration
 export const LINE_CONFIG = {
-  LIFF_ID: process.env.NEXT_PUBLIC_LINE_LIFF_ID || "",
   BOT_URL: process.env.NEXT_PUBLIC_LINE_BOT_URL || "https://google.com",
 } as const
 
@@ -27,10 +26,9 @@ export const API_ENDPOINTS = {
   REORDER_QUEUE: (roomId: string) => `${API_CONFIG.BASE_URL}/api/room/${roomId}/queue/reorder`,
 
   // Audio endpoints
-  AUDIO_INFO: (videoId: string) => `${API_CONFIG.BASE_URL}/api/audio/${videoId}`,
   AUDIO_STREAM: (videoId: string) => `${API_CONFIG.BASE_URL}/api/stream/${videoId}`,
   // Add the new status endpoint
-  AUDIO_STATUS: (videoId: string) => `${API_CONFIG.BASE_URL}/api/audio/${videoId}/status`,
+  AUDIO_STATUS: (videoId: string, roomId: string) => `${API_CONFIG.BASE_URL}/api/audio/${videoId}/status?room_id=${roomId}`,
 
   // WebSocket endpoint
   WEBSOCKET: (roomId: string) => `${API_CONFIG.WS_BASE_URL}/ws/${roomId}`,

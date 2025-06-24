@@ -140,6 +140,23 @@ class RoomManager:
 
         return True
 
+    def start_audio_ready_playback(self, room_id: str, video_id: str):
+        """Start playback when audio is confirmed ready"""
+        room = self.get_room(room_id)
+        if (room and room.current_song and
+                room.current_song.video_id == video_id and
+                hasattr(room, '_waiting_for_audio') and room._waiting_for_audio):
+            # Audio is ready, start the countdown
+            room.playback_state.is_playing = True
+            room.playback_state.current_time = -1.0  # Start countdown
+            room.playback_state.last_update = datetime.now()
+            room._has_ever_played = True
+            delattr(room, '_waiting_for_audio')
+
+            logger.info(f"Started audio-ready playback for room {room_id}, video {video_id}")
+            return True
+        return False
+
     def add_song_to_queue(self, room_id: str, song_data: dict, user_id: str, user_name: str) -> \
             Optional[Song]:
         """Add a song to the room queue"""
@@ -166,24 +183,22 @@ class RoomManager:
         # Check if room has no current song
         if not room.current_song:
             room.current_song = room.queue.pop(0)
-            room.playback_state.current_time = 0.0
-            room.playback_state.last_update = datetime.now()
             self._update_queue_positions(room)
 
-            # Only set to playing if room was previously playing
-            # Room ran out of music vs newly created room
-            # We determine this by checking if the room ever had a playing state
-            # For newly created rooms, we track if they've ever been set to playing
             if hasattr(room, '_has_ever_played') and room._has_ever_played:
-                # Room ran out of music and is getting a new song - start playing
-                room.playback_state.is_playing = True
+                # Room ran out of music - wait for audio ready before playing
+                room.playback_state.current_time = -abs(config['song_start_delay_seconds'])
+                room.playback_state.is_playing = False  # Don't start until audio ready
+                room._waiting_for_audio = True  # Flag to track waiting state
             else:
                 # Newly created room - don't auto-play
+                room.playback_state.current_time = 0.0
                 room.playback_state.is_playing = False
+
+            room.playback_state.last_update = datetime.now()
 
         # Update activity
         room.last_activity = datetime.now()
-
         logger.info(f"Song {song_data['video_id']} added to room {room_id}")
         return song
 
@@ -195,11 +210,11 @@ class RoomManager:
 
         if room.queue:
             room.current_song = room.queue.pop(0)
-            room.playback_state.current_time = 0.0
-            room.playback_state.is_playing = True  # Always start playing when skipping
+            # Always wait for audio ready before starting
+            room.playback_state.current_time = -abs(config['song_start_delay_seconds'])
+            room.playback_state.is_playing = False  # Don't start until audio ready
             room.playback_state.last_update = datetime.now()
-            # Mark that room has been played
-            room._has_ever_played = True
+            room._waiting_for_audio = True
             self._update_queue_positions(room)
         else:
             room.current_song = None
@@ -207,7 +222,6 @@ class RoomManager:
 
         # Update activity
         room.last_activity = datetime.now()
-
         return room.current_song
 
     def update_playback_state(self, room_id: str, is_playing: bool,

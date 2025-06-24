@@ -31,6 +31,11 @@ frontend_url: 'https://cartunes.playfuni.net'
 
 # --- Song Streaming/Caching Settings ---
 
+# Seconds of delay before the song starts playing.
+# This is to ensure the song is fully loaded on frontend before playing.
+# Default is 1 second.
+song_start_delay_seconds: 1
+
 # Song length limit in seconds. Default is 30 minutes (1800 seconds).
 # Shows an error if the song exceeds this limit.
 song_length_limit: 1800
@@ -95,6 +100,7 @@ def read_config():
                 'api_endpoints_port': data['api_endpoints_port'],
                 'line_webhook_port': data['line_webhook_port'],
                 'frontend_url': data['frontend_url'],
+                'song_start_delay_seconds': data['song_start_delay_seconds'],
                 'song_length_limit': data['song_length_limit'],
                 'audio_quality_kbps': data['audio_quality_kbps'],
                 'max_cache_size_mb': data['max_cache_size_mb'],

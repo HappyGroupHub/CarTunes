@@ -11,11 +11,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 
 import utilities as utils
 from innertube.audio_cache import audio_cache
-from innertube.audio_extractor import get_audio_stream_info
 from models import (
     JoinRoomRequest, AddSongRequest, UpdatePlaybackRequest,
     ReorderQueueRequest, RoomResponse, AddSongResponse, QueueResponse
@@ -139,94 +138,33 @@ async def health_check():
 
 # ===== Audio Endpoints =====
 
-@app.get("/api/audio/{video_id}")
-async def get_audio_info(video_id: str):
-    """Get audio information for a video"""
-    try:
-        logger.info(f"Getting audio info for video: {video_id}")
-
-        audio_info = get_audio_stream_info(video_id)
-
-        if not audio_info:
-            raise HTTPException(status_code=404, detail="Video not found")
-
-        return {
-            "success": True,
-            "video_id": video_id,
-            "title": audio_info.get('title', 'Unknown'),
-            "duration": audio_info.get('duration', 0),
-            "thumbnail": audio_info.get('thumbnail', ''),
-            "formats": audio_info.get('audio_formats', []),
-            "best_audio_url": audio_info['audio_formats'][0]['url'] if audio_info.get(
-                'audio_formats') else None
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting audio info: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
 @app.get("/api/audio/{video_id}/status")
-async def get_audio_status(video_id: str):
+async def get_audio_status(video_id: str, room_id: str = Query(None)):
     """Get the download status of an audio file"""
+    logger.info(f"Status check requested for video {video_id}, room {room_id}")
+
     if audio_cache.is_downloading(video_id):
+        logger.info(f"Video {video_id} is downloading")
         return {"status": "downloading", "is_downloading": True}
     elif audio_cache.get_cache_path(video_id):
+        # If room_id provided and audio is ready, start playback
+        logger.info(f"Video {video_id} is ready")
+        if room_id:
+            started = room_manager.start_audio_ready_playback(room_id, video_id)
+            if started:
+                # Broadcast the playback state change
+                logger.info(f"Started playback for room {room_id}")
+
+                await ws_manager.broadcast_playback_state(
+                    room_id,
+                    True,
+                    -abs(config['song_start_delay_seconds'])
+                )
+
         return {"status": "ready", "is_downloading": False}
     else:
+        logger.info(f"Video {video_id} not found")
         raise HTTPException(status_code=404, detail="Audio not found or not yet initiated download")
-
-
-@app.head("/api/stream/{video_id}")
-async def stream_audio_head(video_id: str):
-    """Handle HEAD requests for audio streaming (for URL accessibility testing)"""
-    try:
-        # Check if file is already cached
-        cached_path = audio_cache.get_cache_path(video_id)
-
-        if cached_path:
-            # Determine media type based on file extension
-            file_extension = os.path.splitext(cached_path)[1].lower()
-            # Since we are converting to MP3, the media type will always be audio/mpeg
-            media_type = 'audio/mpeg'
-
-            # Get file size
-            file_size = os.path.getsize(cached_path)
-
-            # Return headers without body (HEAD response)
-            headers = {
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-                "Access-Control-Allow-Headers": "Range, Content-Range, Content-Length",
-                "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
-                "Cache-Control": "public, max-age=3600",
-                "Accept-Ranges": "bytes",
-                "Content-Type": media_type,
-                "Content-Length": str(file_size),
-            }
-
-            return Response(headers=headers)
-
-        # If not cached, check if it's downloading
-        if audio_cache.is_downloading(video_id):
-            return Response(
-                status_code=202,  # Accepted - still processing
-                headers={
-                    "Access-Control-Allow-Origin": "*",
-                    "Cache-Control": "no-cache",
-                }
-            )
-
-        # File not found
-        raise HTTPException(status_code=404, detail="Audio not found")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error handling HEAD request for {video_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Server error")
 
 
 @app.get("/api/stream/{video_id}")
