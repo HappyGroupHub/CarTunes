@@ -60,10 +60,6 @@ class WSMessageType(str, Enum):
     # Error messages
     ERROR = "error"
 
-    # Heartbeat
-    PING = "ping"
-    PONG = "pong"
-
 
 # WebSocket Messages
 class WSMessage(BaseModel):

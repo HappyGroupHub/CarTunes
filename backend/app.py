@@ -760,29 +760,19 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
 
     try:
         while True:
-            # Wait for messages from client with timeout
+            # Wait for messages from client
             try:
-                # Use asyncio.wait_for to add timeout for receive
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
-
+                data = await websocket.receive_text()
                 try:
                     message = json.loads(data)
-
-                    # Handle client messages
-                    if message.get('type') == 'ping':
-                        await websocket.send_text(json.dumps({'type': 'pong'}))
-                    # Add other message types as needed
-
+                    # Handle other message types as needed
                 except json.JSONDecodeError:
                     logger.warning(f"Invalid JSON from client: {data}")
-
-            except asyncio.TimeoutError:
-                # Send ping to check if connection is still alive
-                try:
-                    await websocket.send_text(json.dumps({'type': 'ping'}))
-                except Exception:
-                    # Connection is broken, break the loop
-                    break
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                logger.error(f"WebSocket receive error: {e}")
+                break
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected normally for user {user_id} in room {room_id}")
