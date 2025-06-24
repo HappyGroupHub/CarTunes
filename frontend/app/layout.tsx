@@ -8,7 +8,9 @@ const inter = Inter({subsets: ["latin"]})
 export const metadata: Metadata = {
     title: "CarTunes - 即時協作音樂播放器",
     description: "Real-time collaborative music player for road trips",
-    generator: 'v0.dev'
+    icons: {
+        icon: "/favicon.ico"
+    }
 }
 
 export default function RootLayout({children,}: {

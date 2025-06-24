@@ -1157,7 +1157,7 @@ export default function RoomPage() {
                                     {/* Song Thumbnail */}
                                     {room.current_song.thumbnail && (
                                         <img
-                                            src={room.current_song.thumbnail || "/placeholder.svg"}
+                                            src={room.current_song.thumbnail || "/placeholder.jpg"}
                                             alt={room.current_song.title}
                                             className="w-28 h-28 rounded-lg object-cover mr-4"
                                         />
@@ -1295,7 +1295,7 @@ export default function RoomPage() {
                                                 className="text-white/60 text-sm font-mono w-2.5 flex-shrink-0">{index + 1}</div>
                                             {song.thumbnail && (
                                                 <img
-                                                    src={song.thumbnail || "/placeholder.svg"}
+                                                    src={song.thumbnail || "/placeholder.jpg"}
                                                     alt={song.title}
                                                     className="w-12 h-12 rounded object-cover flex-shrink-0"
                                                 />
