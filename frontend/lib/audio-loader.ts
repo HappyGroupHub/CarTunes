@@ -140,46 +140,12 @@ export function loadAudio(
     const audioUrl = API_ENDPOINTS.AUDIO_STREAM(videoId)
     console.log(`🔗 Audio URL: ${audioUrl}`)
 
-    // Check if the URL is accessible (HEAD request)
-    console.log("🔍 Testing audio URL accessibility (HEAD request)...")
-    fetch(audioUrl, {
-        method: "HEAD",
-        mode: "cors",
-    })
-        .then((response) => {
-            console.log(`🌐 URL test response (HEAD):`, {
-                status: response.status,
-                statusText: response.statusText,
-                headers: Object.fromEntries(response.headers.entries()),
-            })
-
-            if (response.status === 202) {
-                console.log("⏳ Audio is still downloading on server (HEAD response 202)...")
-                setSongDownloading(true)
-            } else if (response.status === 404) {
-                console.log("❌ Audio not found on server (HEAD response 404)")
-                setAudioError("歌曲不存在或無法下載")
-                setAudioLoading(false)
-                setSongDownloading(false)
-                if (loadingTimeout) clearTimeout(loadingTimeout)
-            } else if (response.ok) {
-                console.log("✅ Audio is ready on server (HEAD response 200)")
-                setSongDownloading(false)
-            }
-        })
-        .catch((fetchError) => {
-            console.error("🚨 URL accessibility test (HEAD) failed:", fetchError)
-            setAudioError("網路連線錯誤")
-            setAudioLoading(false)
-            setSongDownloading(false)
-            if (loadingTimeout) clearTimeout(loadingTimeout)
-        })
-        .finally(() => {
-            audioElement.src = audioUrl
-            console.log(`🎯 Audio src set to: ${audioElement.src}`)
-            audioElement.load()
-            console.log("🚀 Audio.load() called")
-        })
+    // REMOVED: HEAD request - we now use the dedicated status endpoint instead
+    // Directly set the audio source and load
+    audioElement.src = audioUrl
+    console.log(`🎯 Audio src set to: ${audioElement.src}`)
+    audioElement.load()
+    console.log("🚀 Audio.load() called")
 
     // Return a cleanup function
     return () => {

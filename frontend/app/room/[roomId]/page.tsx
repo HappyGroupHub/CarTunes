@@ -104,6 +104,11 @@ export default function RoomPage() {
     const [audioStatusChecking, setAudioStatusChecking] = useState<Set<string>>(new Set())
     const audioStatusCheckingRef = useRef<Set<string>>(new Set())
     const statusCheckIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
+    const [audioRetryAttempts, setAudioRetryAttempts] = useState(0)
+    const [showRefreshModal, setShowRefreshModal] = useState(false)
+    const [isNewUserLoadingAudio, setIsNewUserLoadingAudio] = useState(false)
+    const MAX_RETRY_ATTEMPTS = 2
+
 
     useEffect(() => {
         roomRef.current = room
@@ -121,18 +126,35 @@ export default function RoomPage() {
         hasUserInteractedWithPlayButtonRef.current = hasUserInteractedWithPlayButton
     }, [hasUserInteractedWithPlayButton])
 
+    useEffect(() => {
+        // Reset retry attempts when audio is successfully playing
+        if (room?.playback_state.is_playing && !audioError && audioRef.current && !audioRef.current.paused) {
+            setAudioRetryAttempts(0)
+        }
+    }, [room?.playback_state.is_playing, audioError])
+
     // Callbacks for audio-loader, made stable by not depending on 'room' directly
     const handleLoadedMetadata = useCallback((audioElement: HTMLAudioElement, initialTime: number) => {
-        audioElement.currentTime = initialTime
+        // If initialTime is negative (loading state), don't set audio currentTime yet
+        // Let the audio element stay at 0 until backend sends positive time
+        if (initialTime >= 0) {
+            audioElement.currentTime = initialTime
+            console.log(`Setting audio currentTime to ${initialTime}`)
+        } else {
+            console.log(`Backend in loading state (${initialTime}), keeping audio at 0 until ready`)
+            // Audio element will naturally start at 0, which is what we want during loading
+        }
     }, [])
 
     const handleCanPlay = useCallback(
         (audioElement: HTMLAudioElement, isPlaying: boolean, userHasInteracted: boolean) => {
+            setIsNewUserLoadingAudio(false)
+
             if (userHasInteracted && isPlaying && audioElement.paused) {
                 audioElement.play().catch((e) => console.error("Autoplay blocked on canplay:", e))
             }
         },
-        [], // No dependencies
+        []
     )
 
     const loadAudioForCurrentSong = useCallback(
@@ -154,6 +176,68 @@ export default function RoomPage() {
         },
         [handleLoadedMetadata, handleCanPlay, setAudioLoading, setAudioError, setSongDownloading],
     )
+
+    const retryAudioPlayback = useCallback(async () => {
+        setIsNewUserLoadingAudio(false)
+        if (!room?.current_song || !audioRef.current) return false
+
+        const currentAttempts = audioRetryAttempts + 1
+        setAudioRetryAttempts(currentAttempts)
+
+        console.log(`Attempting audio retry ${currentAttempts}/${MAX_RETRY_ATTEMPTS}`)
+
+        try {
+            // Clear previous error
+            setAudioError(null)
+
+            // Reload the audio completely
+            if (audioLoaderCleanupRef.current) {
+                audioLoaderCleanupRef.current()
+                audioLoaderCleanupRef.current = null
+            }
+
+            // Get fresh room state for accurate timing
+            const response = await fetch(`${API_ENDPOINTS.ROOM(roomId)}`)
+            const freshRoomData = await response.json()
+            const currentTime = Math.max(0, freshRoomData.playback_state.current_time)
+
+            // Reload audio from scratch
+            await loadAudioForCurrentSong(
+                room.current_song.video_id,
+                currentTime,
+                freshRoomData.playback_state.is_playing,
+                hasUserInteractedWithPlayButtonRef.current
+            )
+
+            // Wait a moment for audio to load
+            await new Promise(resolve => setTimeout(resolve, 1000))
+
+            // Try to play if room is playing
+            if (freshRoomData.playback_state.is_playing && hasUserInteractedWithPlayButtonRef.current) {
+                if (currentTime >= 0) {
+                    audioRef.current.currentTime = currentTime
+                }
+                await audioRef.current.play()
+                console.log(`Audio retry ${currentAttempts} successful`)
+                setAudioRetryAttempts(0) // Reset on success
+                return true
+            }
+
+            return true
+        } catch (error) {
+            console.error(`Audio retry ${currentAttempts} failed:`, error)
+
+            if (currentAttempts >= MAX_RETRY_ATTEMPTS) {
+                console.log('Max retry attempts reached, showing refresh modal')
+                setShowRefreshModal(true)
+                return false
+            } else {
+                // Try again after a delay
+                setTimeout(() => retryAudioPlayback(), 2000)
+                return false
+            }
+        }
+    }, [audioRetryAttempts, room, roomId, hasUserInteractedWithPlayButtonRef, loadAudioForCurrentSong])
 
     const handleWebSocketMessage = useCallback(
         (data: any) => {
@@ -228,7 +312,11 @@ export default function RoomPage() {
                             0, // Start from beginning
                             false, // Don't auto-play - let backend control this
                             currentUserInteracted,
-                        )
+                        ).catch(error => {
+                            console.error("Audio loading failed:", error)
+                            setAudioError("載入失敗，正在重試...")
+                            retryAudioPlayback()
+                        })
 
                         // START STATUS CHECK IMMEDIATELY when new song appears
                         console.log("New song detected, starting status check")
@@ -309,7 +397,7 @@ export default function RoomPage() {
                             // Backend wants audio to play
                             if (currentUserInteracted) {
                                 // Set time first if provided
-                                if (newCurrentTime !== undefined && Math.abs(audioRef.current.currentTime - newCurrentTime) > 2) {
+                                if (newCurrentTime !== undefined && newCurrentTime >= 0 && Math.abs(audioRef.current.currentTime - newCurrentTime) > 2) {
                                     audioRef.current.currentTime = newCurrentTime
                                 }
 
@@ -394,7 +482,7 @@ export default function RoomPage() {
                     )
                     // Handle audio playback - check if audio is ready first
                     if (audioRef.current && currentUserInteracted) {
-                        if (data.data.current_time !== undefined) {
+                        if (data.data.current_time !== undefined && data.data.current_time >= 0) {
                             audioRef.current.currentTime = data.data.current_time
                         }
 
@@ -484,7 +572,7 @@ export default function RoomPage() {
                             audioRef.current.play().catch(e => console.log("Failed to start stalled audio:", e))
                         } else if (isActuallyPlaying && Math.abs(audioRef.current.currentTime - progressTime) > 2) {
                             console.log(`Resyncing playing audio: local ${audioRef.current.currentTime.toFixed(2)}, remote ${progressTime.toFixed(2)}`)
-                            audioRef.current.currentTime = progressTime
+                            audioRef.current.currentTime = progressTime + 1
                         }
                     }
                     break
@@ -610,6 +698,13 @@ export default function RoomPage() {
         checkRoomExists()
     }, [roomId])
 
+    useEffect(() => {
+        // Clear new user loading state when user has interacted
+        if (hasUserInteractedWithPlayButton) {
+            setIsNewUserLoadingAudio(false)
+        }
+    }, [hasUserInteractedWithPlayButton])
+
     async function checkRoomExists() {
         try {
             const response = await fetch(API_ENDPOINTS.ROOM(roomId))
@@ -621,13 +716,20 @@ export default function RoomPage() {
 
             const roomData = await response.json()
             setRoom(roomData)
-            setCurrentTime(roomData.playback_state.current_time || 0) // Initialize currentTime from backend
+            setCurrentTime(roomData.playback_state.current_time || 0)
             setIsLoading(false)
 
             if (roomData.current_song) {
+                const isNewUserJoiningActiveRoom = roomData.playback_state.is_playing && !hasUserInteractedWithPlayButtonRef.current
+
+                if (isNewUserJoiningActiveRoom) {
+                    setIsNewUserLoadingAudio(true)
+                    console.log("New user joining active room - starting audio load")
+                }
+
                 await loadAudioForCurrentSong(
                     roomData.current_song.video_id,
-                    roomData.playback_state.current_time,
+                    Math.max(0, roomData.playback_state.current_time),
                     roomData.playback_state.is_playing,
                     hasUserInteractedWithPlayButtonRef.current,
                 )
@@ -683,19 +785,9 @@ export default function RoomPage() {
                 })
             } catch (e) {
                 console.error("Error playing audio (Room was paused, autoplay blocked):", e)
-                setAudioError("播放失敗 (自動播放被阻擋或錯誤)")
-                // Revert local UI state if play failed
-                setRoom((prev) =>
-                    prev
-                        ? {
-                            ...prev,
-                            playback_state: {
-                                ...prev.playback_state,
-                                is_playing: false,
-                            },
-                        }
-                        : null,
-                )
+                setAudioError("播放失敗，正在重試...")
+                // This is a local issue, not a room issue
+                retryAudioPlayback()
             }
         } else {
             // Room IS playing music (backend says playing)
@@ -708,7 +800,14 @@ export default function RoomPage() {
                     const latestRoomData = await response.json()
                     const latestCurrentTime = latestRoomData.playback_state.current_time
 
-                    audioEl.currentTime = latestCurrentTime // Sync local audio to latest room time
+                    // Only sync if backend has positive time (not in loading state)
+                    if (latestCurrentTime >= 0) {
+                        audioEl.currentTime = latestCurrentTime
+                        console.log(`Syncing audio to backend time: ${latestCurrentTime}`)
+                    } else {
+                        console.log(`Backend still loading (${latestCurrentTime}), keeping audio at current position`)
+                        // Don't set currentTime to negative values - let audio stay where it is
+                    }
                     await audioEl.play()
                     console.log("Local audio play initiated (Room was already playing).")
                     // Update local state to reflect playing, but don't send backend command
@@ -726,19 +825,9 @@ export default function RoomPage() {
                     )
                 } catch (e) {
                     console.error("Error playing audio (Room was already playing, autoplay blocked):", e)
-                    setAudioError("播放失敗 (自動播放被阻擋或錯誤)")
-                    // Revert local UI state if play failed
-                    setRoom((prev) =>
-                        prev
-                            ? {
-                                ...prev,
-                                playback_state: {
-                                    ...prev.playback_state,
-                                    is_playing: false,
-                                },
-                            }
-                            : null,
-                    )
+                    setAudioError("播放失敗，正在重試...")
+                    // This is a local issue, not a room issue
+                    retryAudioPlayback()
                 }
             } else {
                 // Scenario 3: Local audio IS playing (user wants to pause)
@@ -986,6 +1075,38 @@ export default function RoomPage() {
                 </div>
             </Modal>
 
+            <Modal
+                isOpen={showRefreshModal}
+                onClose={() => setShowRefreshModal(false)}
+                title="提示"
+            >
+                <div className="bg-white rounded-lg p-6 max-w-md mx-auto">
+                    <div className="flex items-center mb-4">
+                        <AlertCircle className="h-6 w-6 text-red-500 mr-2"/>
+                        <h2 className="text-lg font-semibold">音訊播放問題</h2>
+                    </div>
+                    <p className="text-gray-600 mb-4">
+                        音訊播放持續失敗，可能是網路問題或瀏覽器限制。
+                        請重新整理頁面再試一次。
+                    </p>
+                    <div className="flex space-x-3">
+                        <Button
+                            onClick={() => window.location.reload()}
+                            className="flex-1"
+                        >
+                            重新整理頁面
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => setShowRefreshModal(false)}
+                            className="flex-1"
+                        >
+                            繼續嘗試
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
             {/* Header */}
             <div className="bg-black/20 backdrop-blur-sm p-4">
                 <div className="flex items-center justify-between max-w-md mx-auto">
@@ -1055,7 +1176,7 @@ export default function RoomPage() {
                                 </div>
 
                                 {/* Audio Status Indicators */}
-                                {(songDownloading || audioLoading || audioError || (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))) && (
+                                {(songDownloading || audioLoading || audioError || isNewUserLoadingAudio || (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))) && (
                                     <div className="flex items-center justify-center space-x-2 mt-2 mb-2 text-sm">
                                         {songDownloading && (
                                             <span className="text-blue-400 flex items-center">
@@ -1063,19 +1184,25 @@ export default function RoomPage() {
                 音訊載入中...
             </span>
                                         )}
-                                        {(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && !songDownloading && (
+                                        {isNewUserLoadingAudio && !songDownloading && (
+                                            <span className="text-blue-400 flex items-center">
+                <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
+                音訊載入中...
+            </span>
+                                        )}
+                                        {(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && !songDownloading && !isNewUserLoadingAudio && (
                                             <span className="text-yellow-400 flex items-center">
                 <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
                 檢查音訊狀態...
             </span>
                                         )}
-                                        {audioLoading && !songDownloading && !(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && (
+                                        {audioLoading && !songDownloading && !isNewUserLoadingAudio && !(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && (
                                             <span className="text-white/60 flex items-center">
                 <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
                 音訊載入中...
             </span>
                                         )}
-                                        {audioError && !songDownloading && (
+                                        {audioError && !songDownloading && !isNewUserLoadingAudio && (
                                             <span className="text-red-400 flex items-center">
                 <AlertCircle className="h-4 w-4 mr-1" strokeWidth={2}/>
                                                 {audioError}
@@ -1103,6 +1230,7 @@ export default function RoomPage() {
                                                     audioLoading ||
                                                     !!audioError ||
                                                     songDownloading ||
+                                                    isNewUserLoadingAudio ||
                                                     (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))
                                                 }
                                                 size="icon"
