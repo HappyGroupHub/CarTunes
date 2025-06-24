@@ -5,7 +5,6 @@ from typing import Dict, Any
 import requests
 from fastapi import Request, HTTPException, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, TextMessage, \
     ReplyMessageRequest, FlexMessage, FlexContainer, RichMenuRequest, RichMenuBounds, URIAction, \
@@ -15,6 +14,7 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
 import utilities as utils
 from innertube.audio_extractor import get_audio_stream_info
 from innertube.search import search_youtube
+from line_extensions.async_webhook import AsyncWebhookHandler
 from room_manager import RoomManager
 
 room_manager = RoomManager()
@@ -32,7 +32,7 @@ app.add_middleware(
 
 config = utils.read_config()
 configuration = Configuration(access_token=config['line_channel_access_token'])
-handler = WebhookHandler(config['line_channel_secret'])
+async_handler = AsyncWebhookHandler(config['line_channel_secret'])
 
 # Dictionary to track user rooms - key: user_id, value: room_id
 user_rooms = {}
@@ -320,7 +320,7 @@ async def callback(request: Request):
 
     # handle webhook body
     try:
-        handler.handle(body.decode("utf-8"), signature)
+        await async_handler.handle(body.decode("utf-8"), signature)
     except InvalidSignatureError:
         print("Invalid signature. Please check your channel access token/channel secret.")
         raise HTTPException(status_code=400, detail="Invalid signature.")
@@ -328,8 +328,8 @@ async def callback(request: Request):
     return 'OK'
 
 
-@handler.add(MessageEvent, message=TextMessageContent)
-def handle_message(event):
+@async_handler.add(MessageEvent, message=TextMessageContent)
+async def handle_message(event):
     with ApiClient(configuration) as api_client:
         if event.source.type == 'group':  # Exclude group messages, only process DM messages
             return
@@ -551,8 +551,8 @@ def handle_message(event):
                     reply_token=event.reply_token, messages=[reply_message]))
 
 
-@handler.add(PostbackEvent)
-def handle_postback(event):
+@async_handler.add(PostbackEvent)
+async def handle_postback(event):
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         postback_data = event.postback.data
