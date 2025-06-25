@@ -105,42 +105,46 @@ class AudioCacheManager:
             else:
                 logger.warning(f"ffmpeg not found in PATH, using yt-dlp defaults.")
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Download and convert the audio
-                info = ydl.extract_info(url, download=True)
+            def download_sync():
+                # This function runs in a separate thread to avoid blocking
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.extract_info(url, download=True)
 
-                # The output file will now always be .mp3 due to postprocessor
-                downloaded_file = os.path.join(self.cache_dir, f'{video_id}.mp3')
+            await asyncio.to_thread(download_sync)
+            # The output file will now always be .mp3 due to postprocessor
+            downloaded_file = os.path.join(self.cache_dir, f'{video_id}.mp3')
 
-                if not os.path.exists(downloaded_file):
-                    logger.error(
-                        f"Downloaded MP3 file not found for video {video_id} "
-                        f"after yt_dlp.extract_info. Info: {info}")
-                    # Fallback: try to find any file that starts with the video ID
-                    cache_files = os.listdir(self.cache_dir)
-                    for file in cache_files:
-                        if file.startswith(video_id):
-                            downloaded_file = os.path.join(self.cache_dir, file)
-                            logger.info(
-                                f"Found file by prefix match as fallback: {downloaded_file}")
-                            break
-                    if not downloaded_file:
-                        return None
+            if not os.path.exists(downloaded_file):
+                logger.error(
+                    f"Downloaded MP3 file not found for video {video_id} "
+                    f"after yt_dlp.extract_info.")
+                # Fallback: try to find any file that starts with the video ID
+                cache_files = os.listdir(self.cache_dir)
+                found_fallback = False
+                for file in cache_files:
+                    if file.startswith(video_id):
+                        downloaded_file = os.path.join(self.cache_dir, file)
+                        logger.info(
+                            f"Found file by prefix match as fallback: {downloaded_file}")
+                        found_fallback = True
+                        break
+                if not found_fallback:
+                    return None
 
                 # Add to cache with both timestamps
-                current_time = datetime.now()
-                file_size = os.path.getsize(downloaded_file)
-                self.cached_files[video_id] = {
-                    'path': downloaded_file,
-                    'downloaded_at': current_time,
-                    'last_ordered_at': current_time,  # Same as download time initially
-                    'size': file_size
-                }
+            current_time = datetime.now()
+            file_size = os.path.getsize(downloaded_file)
+            self.cached_files[video_id] = {
+                'path': downloaded_file,
+                'downloaded_at': current_time,
+                'last_ordered_at': current_time,  # Same as download time initially
+                'size': file_size
+            }
 
-                logger.info(
-                    f"Audio downloaded and converted to MP3 for {video_id}: "
-                    f"{downloaded_file} ({file_size} bytes) at {self.audio_quality}kbps")
-                return downloaded_file
+            logger.info(
+                f"Audio downloaded and converted to MP3 for {video_id}: "
+                f"{downloaded_file} ({file_size} bytes) at {self.audio_quality}kbps")
+            return downloaded_file
 
         except Exception as e:
             logger.error(f"Error downloading or converting audio for {video_id}: {e}")
