@@ -107,6 +107,8 @@ export default function RoomPage() {
     const [audioRetryAttempts, setAudioRetryAttempts] = useState(0)
     const [showRefreshModal, setShowRefreshModal] = useState(false)
     const [isNewUserLoadingAudio, setIsNewUserLoadingAudio] = useState(false)
+    const newUserLoadingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+    const NEW_USER_LOADING_TIMEOUT = 5000 // 5 seconds
     const MAX_RETRY_ATTEMPTS = 2
 
 
@@ -133,6 +135,20 @@ export default function RoomPage() {
         }
     }, [room?.playback_state.is_playing, audioError])
 
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            // Clear all status check intervals
+            statusCheckIntervalsRef.current.forEach(interval => clearInterval(interval))
+            statusCheckIntervalsRef.current.clear()
+
+            // Clear new user loading timeout
+            if (newUserLoadingTimeoutRef.current) {
+                clearTimeout(newUserLoadingTimeoutRef.current)
+            }
+        }
+    }, [])
+
     // Callbacks for audio-loader, made stable by not depending on 'room' directly
     const handleLoadedMetadata = useCallback((audioElement: HTMLAudioElement, initialTime: number) => {
         // If initialTime is negative (loading state), don't set audio currentTime yet
@@ -149,6 +165,12 @@ export default function RoomPage() {
     const handleCanPlay = useCallback(
         (audioElement: HTMLAudioElement, isPlaying: boolean, userHasInteracted: boolean) => {
             setIsNewUserLoadingAudio(false)
+
+            // Clear the timeout if audio loads successfully
+            if (newUserLoadingTimeoutRef.current) {
+                clearTimeout(newUserLoadingTimeoutRef.current)
+                newUserLoadingTimeoutRef.current = null
+            }
 
             if (userHasInteracted && isPlaying && audioElement.paused) {
                 audioElement.play().catch((e) => console.error("Autoplay blocked on canplay:", e))
@@ -608,7 +630,7 @@ export default function RoomPage() {
 
         const checkStatus = async () => {
             try {
-                const url = API_ENDPOINTS.AUDIO_STATUS(videoId, roomId)
+                const url = `${API_ENDPOINTS.AUDIO_STATUS(videoId, roomId)}`
                 console.log(`Checking status at: ${url}`)
 
                 const response = await fetch(url)
@@ -642,31 +664,47 @@ export default function RoomPage() {
                         })
 
                         setSongDownloading(false)
+
+                        // If audio is ready and we were waiting as a new user, load it
+                        if (isNewUserLoadingAudio && room?.current_song?.video_id === videoId) {
+                            console.log("Audio ready for new user, loading audio")
+                            await loadAudioForCurrentSong(
+                                videoId,
+                                Math.max(0, room.playback_state.current_time),
+                                room.playback_state.is_playing,
+                                hasUserInteractedWithPlayButtonRef.current
+                            )
+                        }
+
                         return true
+                    } else {
+                        // Status is not ready/downloading
+                        setAudioError("音訊無法使用")
+                        return false
                     }
-                } else {
-                    console.error(`Status check failed with status:`, response.status)
                 }
             } catch (error) {
-                console.error(`Status check failed for ${videoId}:`, error)
+                console.error("Status check error:", error)
             }
             return false
         }
 
-        // Check immediately
+        // Initial check
         const isReady = await checkStatus()
-        if (isReady) return
 
-        // If not ready, poll every 1 second
-        const interval = setInterval(async () => {
-            const ready = await checkStatus()
-            if (ready) {
-                clearInterval(interval)
-                statusCheckIntervalsRef.current.delete(videoId)
-            }
-        }, 1000)
-        statusCheckIntervalsRef.current.set(videoId, interval)
-    }, [roomId])
+        if (!isReady) {
+            // Set up periodic checking
+            const interval = setInterval(async () => {
+                const ready = await checkStatus()
+                if (ready) {
+                    clearInterval(interval)
+                    statusCheckIntervalsRef.current.delete(videoId)
+                }
+            }, 2000) // Check every 2 seconds
+
+            statusCheckIntervalsRef.current.set(videoId, interval)
+        }
+    }, [roomId, setSongDownloading, setAudioLoading, setAudioError, isNewUserLoadingAudio, room, loadAudioForCurrentSong])
 
     const {isConnected, connectionStatus} = useWebSocket({
         url: `${API_ENDPOINTS.WEBSOCKET(roomId)}?user_id=${userId}`,
@@ -725,6 +763,19 @@ export default function RoomPage() {
                 if (isNewUserJoiningActiveRoom) {
                     setIsNewUserLoadingAudio(true)
                     console.log("New user joining active room - starting audio load")
+
+                    // Set timeout for new user loading
+                    newUserLoadingTimeoutRef.current = setTimeout(() => {
+                        if (isNewUserLoadingAudio) {
+                            console.log("New user loading timeout reached")
+                            setIsNewUserLoadingAudio(false)
+                            setAudioError("載入超時，請重試")
+                            retryAudioPlayback()
+                        }
+                    }, NEW_USER_LOADING_TIMEOUT)
+
+                    // Check audio status immediately
+                    await checkAudioStatus(roomData.current_song.video_id)
                 }
 
                 await loadAudioForCurrentSong(
