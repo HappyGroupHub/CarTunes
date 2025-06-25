@@ -108,6 +108,7 @@ export default function RoomPage() {
     const audioStatusCheckingRef = useRef<Set<string>>(new Set())
     const statusCheckIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
     const [audioRetryAttempts, setAudioRetryAttempts] = useState(0)
+    const [audioInitialized, setAudioInitialized] = useState(false)
     const [showRefreshModal, setShowRefreshModal] = useState(false)
     const [isNewUserLoadingAudio, setIsNewUserLoadingAudio] = useState(false)
     const newUserLoadingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -190,6 +191,7 @@ export default function RoomPage() {
             }
 
             if (audioRef.current) {
+                setAudioInitialized(true)
                 audioLoaderCleanupRef.current = loadAudio(audioRef.current, videoId, {
                     setAudioLoading,
                     setAudioError,
@@ -644,6 +646,30 @@ export default function RoomPage() {
         audioStatusCheckingRef.current.add(videoId)
         setAudioStatusChecking(prev => new Set([...prev, videoId]))
 
+        let retryCount = 0
+        let timeoutHandle: NodeJS.Timeout | null = null
+        let isDownloading = false
+
+        const cleanup = () => {
+            // Clear interval and tracking
+            const interval = statusCheckIntervalsRef.current.get(videoId)
+            if (interval) {
+                clearInterval(interval)
+                statusCheckIntervalsRef.current.delete(videoId)
+            }
+
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle)
+            }
+
+            audioStatusCheckingRef.current.delete(videoId)
+            setAudioStatusChecking(prev => {
+                const newSet = new Set(prev)
+                newSet.delete(videoId)
+                return newSet
+            })
+        }
+
         const checkStatus = async () => {
             try {
                 const url = `${API_ENDPOINTS.AUDIO_STATUS(videoId, roomId)}`
@@ -657,28 +683,23 @@ export default function RoomPage() {
                     console.log(`Status data:`, data)
 
                     if (data.status === "downloading") {
+                        isDownloading = true
                         setSongDownloading(true)
                         setAudioLoading(false)
                         setAudioError(null)
+                        // Reset retry count when downloading
+                        retryCount = 0
+                        // Cancel timeout since backend is actively downloading
+                        if (timeoutHandle) {
+                            clearTimeout(timeoutHandle)
+                            timeoutHandle = null
+                        }
                         return false
                     } else if (data.status === "ready") {
                         // Audio is ready - IMMEDIATELY clear checking state
                         console.log(`✅ Audio ready for ${videoId}, clearing status check`)
 
-                        // Clear interval and tracking
-                        const interval = statusCheckIntervalsRef.current.get(videoId)
-                        if (interval) {
-                            clearInterval(interval)
-                            statusCheckIntervalsRef.current.delete(videoId)
-                        }
-
-                        audioStatusCheckingRef.current.delete(videoId)
-                        setAudioStatusChecking(prev => {
-                            const newSet = new Set(prev)
-                            newSet.delete(videoId)
-                            return newSet
-                        })
-
+                        cleanup()
                         setSongDownloading(false)
 
                         // If audio is ready and we were waiting as a new user, load it
@@ -694,25 +715,66 @@ export default function RoomPage() {
 
                         return true
                     } else {
-                        // Status is not ready/downloading
-                        setAudioError("音訊無法使用")
+                        // Status is not ready/downloading (404 or other error)
+                        if (!isDownloading) {
+                            retryCount++
+                            if (retryCount >= MAX_RETRY_ATTEMPTS) {
+                                cleanup()
+                                setAudioError("音訊無法載入，請直接跳至下一首")
+                                setSongDownloading(false)
+                                return false
+                            }
+                        }
                         return false
                     }
+                } else {
+                    // Request failed (404 or network error)
+                    if (!isDownloading) {
+                        retryCount++
+                        if (retryCount >= MAX_RETRY_ATTEMPTS) {
+                            cleanup()
+                            setAudioError("音訊無法載入，請直接跳至下一首")
+                            setSongDownloading(false)
+                            return false
+                        }
+                    }
+                    return false
                 }
             } catch (error) {
                 console.error("Status check error:", error)
+                if (!isDownloading) {
+                    retryCount++
+                    if (retryCount >= MAX_RETRY_ATTEMPTS) {
+                        cleanup()
+                        setAudioError("音訊無法載入，請直接跳至下一首")
+                        setSongDownloading(false)
+                        return false
+                    }
+                }
+                return false
             }
-            return false
+        }
+
+        // Only set timeout if not downloading
+        if (!isDownloading) {
+            timeoutHandle = setTimeout(() => {
+                if (!isDownloading) {
+                    console.log(`Audio status check timeout after ${NEW_USER_LOADING_TIMEOUT}ms`)
+                    cleanup()
+                    setAudioError("音訊無法載入，請直接跳至下一首")
+                    setSongDownloading(false)
+                }
+            }, NEW_USER_LOADING_TIMEOUT)
         }
 
         // Initial check
         const isReady = await checkStatus()
 
-        if (!isReady) {
+        if (!isReady && (isDownloading || retryCount < MAX_RETRY_ATTEMPTS)) {
             // Set up periodic checking
             const interval = setInterval(async () => {
                 const ready = await checkStatus()
-                if (ready) {
+                if (ready || (!isDownloading && retryCount >= MAX_RETRY_ATTEMPTS)) {
                     clearInterval(interval)
                     statusCheckIntervalsRef.current.delete(videoId)
                 }
@@ -789,10 +851,10 @@ export default function RoomPage() {
                             retryAudioPlayback()
                         }
                     }, NEW_USER_LOADING_TIMEOUT)
-
-                    // Check audio status immediately
-                    await checkAudioStatus(roomData.current_song.video_id)
                 }
+
+                console.log("Checking audio status for current song")
+                await checkAudioStatus(roomData.current_song.video_id)
 
                 await loadAudioForCurrentSong(
                     roomData.current_song.video_id,
@@ -808,13 +870,38 @@ export default function RoomPage() {
     }
 
     async function togglePlayback() {
-        if (!room?.current_song || audioError || songDownloading) {
-            console.log("Cannot play due to no current song, audio error, or downloading")
+        if (!room?.current_song || songDownloading) {
+            console.log("Cannot play due to no current song or downloading")
             return
         }
 
         const audioEl = audioRef.current
         if (!audioEl) return
+
+        // Check if audio source is set
+        if (!audioEl.src || audioEl.src === '') {
+            console.log("Audio not loaded yet, loading now...")
+
+            // Load audio if not already loaded
+            await loadAudioForCurrentSong(
+                room.current_song.video_id,
+                Math.max(0, room.playback_state.current_time),
+                true, // We want to play after loading
+                true  // User has interacted
+            )
+
+            // Wait a bit for audio to load
+            await new Promise(resolve => setTimeout(resolve, 1000))
+
+            // Clear any error that might have been set
+            setAudioError(null)
+        }
+
+        // If there's still an error after attempting to load, don't proceed
+        if (audioError && !audioEl.src) {
+            console.log("Cannot play due to audio error")
+            return
+        }
 
         const roomIsPlaying = room.playback_state.is_playing // Backend's view of playback
         const localAudioIsPlaying = !audioEl.paused // Local audio element's view
@@ -1367,7 +1454,6 @@ export default function RoomPage() {
                                                 onClick={togglePlayback}
                                                 disabled={
                                                     audioLoading ||
-                                                    !!audioError ||
                                                     songDownloading ||
                                                     isNewUserLoadingAudio ||
                                                     (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))
