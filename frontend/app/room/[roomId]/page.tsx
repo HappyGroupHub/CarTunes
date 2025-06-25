@@ -1,6 +1,6 @@
 "use client"
 
-import type React from "react"
+import React from "react"
 
 import {useEffect, useState, useRef, useCallback} from "react"
 import {useParams, useSearchParams, useRouter} from "next/navigation"
@@ -24,6 +24,7 @@ import {
     VolumeX,
     Volume2,
     ArrowUpNarrowWide,
+    Check,
 } from "lucide-react"
 import {useWebSocket} from "@/hooks/use-websocket"
 import {formatTime} from "@/lib/utils"
@@ -80,8 +81,10 @@ export default function RoomPage() {
     const [hasUserInteractedWithPlayButton, setHasUserInteractedWithPlayButton] = useState(false)
 
     const [isMuted, setIsMuted] = useState(false)
-    const [muteMessage, setMuteMessage] = useState<string | null>(null)
-    const [messageOpacity, setMessageOpacity] = useState(1)
+    const [statusMessage, setStatusMessage] = useState<string | null>(null)
+    const [statusMessageOpacity, setStatusMessageOpacity] = useState(1)
+    const [statusIconComponent, setStatusIconComponent] = useState<React.ElementType | null>(null)
+    const [statusMessageColor, setStatusMessageColor] = useState<string>("")
     const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
     const audioRef = useRef<HTMLAudioElement>(null)
@@ -419,7 +422,11 @@ export default function RoomPage() {
                             // Backend wants audio to play
                             if (currentUserInteracted) {
                                 // Set time first if provided
-                                if (newCurrentTime !== undefined && newCurrentTime >= 0 && Math.abs(audioRef.current.currentTime - newCurrentTime) > 2) {
+                                if (
+                                    newCurrentTime !== undefined &&
+                                    newCurrentTime >= 0 &&
+                                    Math.abs(audioRef.current.currentTime - newCurrentTime) > 2
+                                ) {
                                     audioRef.current.currentTime = newCurrentTime
                                 }
 
@@ -533,7 +540,8 @@ export default function RoomPage() {
                                 playback_state: {
                                     ...prev.playback_state,
                                     is_playing: false,
-                                    current_time: data.data.current_time !== undefined ? data.data.current_time : prev.playback_state.current_time,
+                                    current_time:
+                                        data.data.current_time !== undefined ? data.data.current_time : prev.playback_state.current_time,
                                 },
                             }
                             : null,
@@ -541,7 +549,10 @@ export default function RoomPage() {
                     // Handle audio pause
                     if (audioRef.current) {
                         audioRef.current.pause()
-                        if (data.data.current_time !== undefined && Math.abs(audioRef.current.currentTime - data.data.current_time) > 2) {
+                        if (
+                            data.data.current_time !== undefined &&
+                            Math.abs(audioRef.current.currentTime - data.data.current_time) > 2
+                        ) {
                             audioRef.current.currentTime = data.data.current_time
                         }
                     }
@@ -588,7 +599,12 @@ export default function RoomPage() {
                         // Normal sync logic for positive times
                         const isActuallyPlaying = !audioRef.current.paused
 
-                        if (!isActuallyPlaying && currentUserInteracted && roomRef.current?.playback_state.is_playing && !songDownloading) {
+                        if (
+                            !isActuallyPlaying &&
+                            currentUserInteracted &&
+                            roomRef.current?.playback_state.is_playing &&
+                            !songDownloading
+                        ) {
                             console.log("Audio should be playing but isn't - starting")
                             audioRef.current.currentTime = progressTime
                             audioRef.current.play().catch(e => console.log("Failed to start stalled audio:", e))
@@ -1011,18 +1027,81 @@ export default function RoomPage() {
             }
 
             const message = newState ? "音樂已在此裝置靜音" : "開始在裝置播放音樂"
-            setMuteMessage(message)
-            setMessageOpacity(1) // Ensure message is fully visible when it appears
+            setStatusMessage(message)
+            setStatusMessageColor(newState ? "text-red-500" : "text-green-400")
+            setStatusMessageOpacity(1)
 
             // Set timeout to start fading after 2.5 seconds
             messageTimeoutRef.current = setTimeout(() => {
-                setMessageOpacity(0)
+                setStatusMessageOpacity(0)
             }, 2500)
 
             // Set timeout to clear message completely after 3 seconds (0.5s fade + 2.5s delay)
             messageTimeoutRef.current = setTimeout(() => {
-                setMuteMessage(null)
-                setMessageOpacity(1) // Reset opacity for next message
+                setStatusMessage(null)
+                setStatusMessageColor("")
+                setStatusMessageOpacity(1)
+            }, 3000)
+        }
+    }
+
+    const copyRoomId = async () => {
+        if (!roomId) return
+
+        try {
+            if (!navigator.clipboard) {
+                if (messageTimeoutRef.current) {
+                    clearTimeout(messageTimeoutRef.current)
+                }
+                setStatusMessage("瀏覽器不支援複製")
+                setStatusIconComponent(AlertCircle)
+                setStatusMessageColor("text-red-500")
+                setStatusMessageOpacity(1)
+                messageTimeoutRef.current = setTimeout(() => {
+                    setStatusMessageOpacity(0)
+                }, 2500)
+                messageTimeoutRef.current = setTimeout(() => {
+                    setStatusMessage(null)
+                    setStatusIconComponent(null)
+                    setStatusMessageColor("")
+                    setStatusMessageOpacity(1)
+                }, 3000)
+                return
+            }
+            await navigator.clipboard.writeText(roomId)
+            if (messageTimeoutRef.current) {
+                clearTimeout(messageTimeoutRef.current)
+            }
+            setStatusMessage("已複製房間代碼")
+            setStatusIconComponent(Check)
+            setStatusMessageColor("text-green-400")
+            setStatusMessageOpacity(1)
+            messageTimeoutRef.current = setTimeout(() => {
+                setStatusMessageOpacity(0)
+            }, 2500)
+            messageTimeoutRef.current = setTimeout(() => {
+                setStatusMessage(null)
+                setStatusIconComponent(null)
+                setStatusMessageColor("")
+                setStatusMessageOpacity(1)
+            }, 3000)
+        } catch (err) {
+            console.error("Failed to copy room ID:", err)
+            if (messageTimeoutRef.current) {
+                clearTimeout(messageTimeoutRef.current)
+            }
+            setStatusMessage("複製失敗")
+            setStatusIconComponent(AlertCircle)
+            setStatusMessageColor("text-red-500")
+            setStatusMessageOpacity(1)
+            messageTimeoutRef.current = setTimeout(() => {
+                setStatusMessageOpacity(0)
+            }, 2500)
+            messageTimeoutRef.current = setTimeout(() => {
+                setStatusMessage(null)
+                setStatusIconComponent(null)
+                setStatusMessageColor("")
+                setStatusMessageOpacity(1)
             }, 3000)
         }
     }
@@ -1162,8 +1241,15 @@ export default function RoomPage() {
             <div className="bg-black/20 backdrop-blur-sm p-4">
                 <div className="flex items-center justify-between max-w-md mx-auto">
                     <div className="flex items-center space-x-2">
-                        <Music className="h-6 w-6 text-white" strokeWidth={2}/>
-                        <span className="text-white font-semibold">房間 {roomId}</span>
+                        {/* Make this whole div clickable for copying room ID */}
+                        <div
+                            onClick={copyRoomId}
+                            className="flex items-center space-x-2 cursor-pointer hover:bg-white/10 p-1 rounded-md transition-colors"
+                        >
+                            <Music className="h-6 w-6 text-white" strokeWidth={2}/>
+                            <span className="text-white font-semibold">房間 {roomId}</span>
+                        </div>
+
                         {/* Mute Button */}
                         <Button
                             onClick={toggleMute}
@@ -1174,13 +1260,15 @@ export default function RoomPage() {
                         >
                             {isMuted ? <VolumeX className="h-4 w-4"/> : <Volume2 className="h-4 w-4"/>}
                         </Button>
-                        {/* Mute Message */}
-                        {muteMessage && (
+
+                        {/* Status Message (replaces mute message) */}
+                        {statusMessage && (
                             <span
-                                className={`${isMuted ? "text-red-500" : "text-white"} text-sm ml-2 transition-opacity duration-500 ease-out`}
-                                style={{opacity: messageOpacity}}
+                                className={`${statusMessageColor} flex items-center text-sm ml-2 transition-opacity duration-500 ease-out`}
+                                style={{opacity: statusMessageOpacity}}
                             >
-                {muteMessage}
+                {statusIconComponent && React.createElement(statusIconComponent, {className: "h-4 w-4 mr-1"})}
+                                {statusMessage}
               </span>
                         )}
                     </div>
