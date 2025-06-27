@@ -19,7 +19,7 @@ class JoinRoomRequest(BaseModel):
 class AddSongRequest(BaseModel):
     video_id: str
     title: Optional[str] = None
-    artist: Optional[str] = None
+    channel: Optional[str] = None
     duration: Optional[int] = None
     thumbnail: Optional[str] = None
 
@@ -84,7 +84,7 @@ class Song(BaseModel):
     id: str
     video_id: str
     title: str
-    artist: Optional[str] = None
+    channel: Optional[str] = None
     duration: int  # in seconds
     thumbnail: str
     requester_id: str
@@ -109,6 +109,8 @@ class Room(BaseModel):
     playback_state: PlaybackState
     last_activity: datetime  # Updated when users connect or music plays
     active_connections: int = 0  # Number of active WebSocket connections
+    autoplay: bool = True
+    autoplay_playlist: List[Dict[str, Any]] = []
 
 
 # Response Models
@@ -121,6 +123,7 @@ class RoomResponse(BaseModel):
     current_song: Optional[dict] = None
     playback_state: dict
     active_users: int
+    autoplay: bool
 
 
 class AddSongResponse(BaseModel):

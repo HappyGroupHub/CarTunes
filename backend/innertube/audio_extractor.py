@@ -52,7 +52,7 @@ def get_audio_stream_info(video_id: str) -> dict | None:
                 'id': info.get('id'),
                 'title': info.get('title'),
                 'duration': info.get('duration'),
-                'uploader': info.get('uploader'),
+                'channel': info.get('uploader'),
                 'audio_formats': audio_formats,
                 'thumbnail': info.get('thumbnail'),
             }

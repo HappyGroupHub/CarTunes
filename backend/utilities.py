@@ -26,6 +26,7 @@ api_endpoints_port: 5000
 line_webhook_port: 5001
 
 # Frontend website configuration, where users can interact with the music player.
+# This is needed so user can access the website with LINE rich menu.
 frontend_url: 'https://cartunes.playfuni.net'
 
 
@@ -51,6 +52,16 @@ max_cache_size_mb: 300
 # Cache duration in hours. Songs will be deleted after this time since last order.
 # Default is 1 hour.
 cache_duration_hours: 1
+
+# Autoplay the recommended next song if there's no more song in the queue.
+# Default is true, which means as the room is created, this option is enabled.
+# User can always disable or enable it with the frontend website.
+autoplay_default: true
+
+# Recommended next song search engine, two options:
+# 'youtube_music' - Uses YouTube Music to find the next song, might be more random.
+# 'youtube' - Uses YouTube to find the next song, might be more relevant but stuck to the same artist.
+autoplay_search_engine: 'youtube_music'
 
 
 # --- Rooms Broadcast/Cleanup Settings ---
@@ -105,6 +116,8 @@ def read_config():
                 'audio_quality_kbps': data['audio_quality_kbps'],
                 'max_cache_size_mb': data['max_cache_size_mb'],
                 'cache_duration_hours': data['cache_duration_hours'],
+                'autoplay_default': data['autoplay_default'],
+                'autoplay_search_engine': data['autoplay_search_engine'],
                 'numeric_room_code': data['numeric_room_code'],
                 'pause_music_after_no_connections': data['pause_music_after_no_connections'],
                 'room_cleanup_after_inactivity': data['room_cleanup_after_inactivity'],
@@ -116,6 +129,12 @@ def read_config():
             if not config['line_channel_access_token'] or not config['line_channel_secret']:
                 print("Please fill in LINE channel access token and secret in config.yml.\n"
                       "You can get it from https://developers.line.biz/console/")
+                sys.exit()
+
+            # Validate if autoplay_search_engine is set to a valid value
+            if config['autoplay_search_engine'] not in ['youtube_music', 'youtube']:
+                print("Invalid autoplay_search_engine value in config.yml. "
+                      "Please set it to 'youtube_music' or 'youtube'.")
                 sys.exit()
             return config
     except (KeyError, TypeError):

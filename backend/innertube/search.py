@@ -198,7 +198,7 @@ def parse_youtube_music_search_results(data: dict) -> list:
                 'type': shelf_type.lower(),
                 'id': video_id,
                 'title': title,
-                'artists': artists,
+                'channel': artists,
                 'album': album,
                 'duration': duration,
                 'views': views,

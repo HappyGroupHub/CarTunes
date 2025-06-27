@@ -185,7 +185,7 @@ def _parse_watch_playlist_response(data: Dict) -> List[Dict]:
 
         if all([video_id, title, artists]):
             results.append({
-                'type': 'song', 'id': video_id, 'title': title, 'artists': artists,
+                'type': 'song', 'id': video_id, 'title': title, 'channel': artists,
                 'album': album_or_views, 'duration': duration, 'thumbnail': thumbnail_url
             })
 
@@ -202,7 +202,7 @@ if __name__ == "__main__":
         if recommendations:
             print(f"\nSuccessfully found {len(recommendations)} recommended songs:")
             for i, track in enumerate(recommendations[:10]):
-                print(f"  {i + 1:2d}. {track['title']} by {track['artists']} ({track['duration']})")
+                print(f"  {i + 1:2d}. {track['title']} by {track['channel']} ({track['duration']})")
         else:
             print("\nCould not retrieve any recommendations.")
 

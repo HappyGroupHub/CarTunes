@@ -31,12 +31,13 @@ import {formatTime} from "@/lib/utils"
 import {Modal} from "@/components/ui/modal"
 import {API_ENDPOINTS} from "@/lib/config"
 import {loadAudio} from "@/lib/audio-loader"
+import {AutoplayToggle} from "@/components/autoplay-toggle"
 
 interface Song {
     id: string
     video_id: string
     title: string
-    artist?: string
+    channel?: string
     duration: number
     thumbnail?: string
     requester_id: string
@@ -61,6 +62,7 @@ interface Room {
     current_song: Song | null
     playback_state: PlaybackState
     active_users: number
+    autoplay: boolean
 }
 
 export default function RoomPage() {
@@ -79,6 +81,7 @@ export default function RoomPage() {
     const [audioError, setAudioError] = useState<string | null>(null)
     const [songDownloading, setSongDownloading] = useState(false)
     const [hasUserInteractedWithPlayButton, setHasUserInteractedWithPlayButton] = useState(false)
+    const [autoplayEnabled, setAutoplayEnabled] = useState(false)
 
     const [isMuted, setIsMuted] = useState(false)
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
@@ -296,7 +299,9 @@ export default function RoomPage() {
                                 }
                                 : roomData.playback_state,
                         active_users: prev?.active_users || 0,
+                        autoplay: roomData.autoplay,
                     }))
+                    setAutoplayEnabled(roomData.autoplay)
 
                     // Only reload audio if the current song actually changed
                     const songChanged = previousSong?.id !== newSong?.id
@@ -493,9 +498,11 @@ export default function RoomPage() {
                             ? {
                                 ...prev,
                                 active_users: data.data.active_users,
+                                autoplay: data.data.autoplay,
                             }
                             : null,
                     )
+                    setAutoplayEnabled(data.data.autoplay)
                     break
 
                 case "PLAYBACK_STARTED":
@@ -834,6 +841,7 @@ export default function RoomPage() {
             setRoom(roomData)
             setCurrentTime(roomData.playback_state.current_time || 0)
             setIsLoading(false)
+            setAutoplayEnabled(roomData.autoplay)
 
             if (roomData.current_song) {
                 const isNewUserJoiningActiveRoom = roomData.playback_state.is_playing && !hasUserInteractedWithPlayButtonRef.current
@@ -1132,6 +1140,24 @@ export default function RoomPage() {
         }
     }
 
+    const handleAutoplayToggle = async () => {
+        if (!roomId) return
+        try {
+            const response = await fetch(`${API_ENDPOINTS.ROOM(roomId)}/autoplay/toggle`, {
+                method: "POST",
+            })
+            if (!response.ok) {
+                throw new Error("Failed to toggle autoplay")
+            }
+            const data = await response.json()
+            console.log("Autoplay toggled:", data.autoplay)
+        } catch (error) {
+            console.error("Error toggling autoplay:", error)
+            setErrorMessage("自動播放切換失敗")
+            setShowErrorModal(true)
+        }
+    }
+
     const copyRoomId = async () => {
         if (!roomId) return
 
@@ -1388,11 +1414,11 @@ export default function RoomPage() {
                                             className="w-28 h-28 rounded-lg object-cover mr-4"
                                         />
                                     )}
-                                    {/* Song Info (Title, Artist, Requester) */}
+                                    {/* Song Info (Title, Channel, Requester) */}
                                     <div className="flex-1 min-w-0 text-left">
                                         <h2 className="text-white font-bold text-base line-clamp-2 mb-1">{room.current_song.title}</h2>
-                                        {room.current_song.artist && (
-                                            <p className="text-white/70 text-sm truncate mb-1">{room.current_song.artist}</p>
+                                        {room.current_song.channel && (
+                                            <p className="text-white/70 text-sm truncate mb-1">{room.current_song.channel}</p>
                                         )}
                                         <div className="flex items-center space-x-1 text-white/60 text-xs">
                                             <User className="h-3 w-3" strokeWidth={2}/>
@@ -1491,9 +1517,17 @@ export default function RoomPage() {
                 {/* Queue */}
                 <Card className="bg-white/10 backdrop-blur-sm border-white/20">
                     <CardContent className="p-4">
-                        <h3 className="text-white font-semibold mb-4 flex items-center">
-                            <Music className="h-4 w-4 mr-2" strokeWidth={2}/>
-                            播放清單 ({room.queue.length})
+                        <h3 className="text-white font-semibold mb-4 flex items-center justify-between">
+                            <div className="flex items-center">
+                                <Music className="h-4 w-4 mr-2" strokeWidth={2}/>
+                                播放清單 ({room.queue.length})
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <span
+                                    className="text-xs text-white/70">自動播放</span>
+                                <AutoplayToggle isEnabled={room.autoplay}
+                                                onToggle={handleAutoplayToggle}/>
+                            </div>
                         </h3>
 
                         {room.queue.length > 0 ? (

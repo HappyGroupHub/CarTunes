@@ -17,7 +17,7 @@ import utilities as utils
 from innertube.audio_cache import audio_cache
 from models import (
     JoinRoomRequest, AddSongRequest, UpdatePlaybackRequest,
-    ReorderQueueRequest, RoomResponse, AddSongResponse, QueueResponse
+    ReorderQueueRequest, RoomResponse, AddSongResponse, QueueResponse, WSMessage, WSMessageType
 )
 from room_manager import RoomManager
 from websocket_manager import ConnectionManager
@@ -97,9 +97,13 @@ async def broadcast_playback_progress():
                         # Also broadcast queue update for natural song finish
                         await ws_manager.broadcast_queue_reordered(room_id,
                                                                    [s.dict() for s in room.queue])
+
+                        # Check autoplay after skipping
+                        if next_song and room.autoplay and len(room.queue) == 0:
+                            asyncio.create_task(async_check_autoplay(room_id))
                     else:
-                        # Only broadcast progress every 5 seconds to reduce WebSocket traffic
-                        # and only if there are active connections
+                        # Only broadcast progress every 5 seconds (default in config),
+                        # while there are active ws connections
                         connection_count = ws_manager.get_room_connection_count(room_id)
                         if connection_count > 0:
                             # Check if we should send progress update
@@ -114,6 +118,23 @@ async def broadcast_playback_progress():
 
         # Update every second but only broadcast every 5 seconds
         await asyncio.sleep(1)
+
+
+async def async_check_autoplay(room_id: str):
+    """Asynchronously check and add autoplay song"""
+    try:
+        # Run the check in a separate thread to avoid blocking the event loop
+        autoplay_song = await asyncio.to_thread(
+            room_manager.check_and_add_autoplay_song,
+            room_id
+        )
+
+        if autoplay_song:
+            # Broadcast the new song when it's ready
+            await ws_manager.broadcast_song_added(room_id, autoplay_song.dict())
+            logger.info(f"Autoplay song added asynchronously for room {room_id}")
+    except Exception as e:
+        logger.error(f"Error in async autoplay check for room {room_id}: {e}")
 
 
 # ===== Basic Endpoints =====
@@ -316,7 +337,8 @@ async def create_room(
         queue=[s.dict() for s in room.queue],
         current_song=room.current_song.dict() if room.current_song else None,
         playback_state=room.playback_state.dict(),
-        active_users=room.active_connections
+        active_users=room.active_connections,
+        autoplay=room.autoplay
     )
 
 
@@ -344,8 +366,8 @@ async def join_room(request_object: Request, request: JoinRoomRequest):
         "current_song": room.current_song.dict() if room.current_song else None,
         "playback_state": {
             **room.playback_state.dict(),
-            "current_time": room_manager.get_current_playback_time(request.room_id)
-        }
+            "current_time": room_manager.get_current_playback_time(request.room_id)},
+        "autoplay": room.autoplay
     })
 
     return RoomResponse(
@@ -356,7 +378,8 @@ async def join_room(request_object: Request, request: JoinRoomRequest):
         queue=[s.dict() for s in room.queue],
         current_song=room.current_song.dict() if room.current_song else None,
         playback_state=room.playback_state.dict(),
-        active_users=room.active_connections
+        active_users=room.active_connections,
+        autoplay=room.autoplay
     )
 
 
@@ -382,7 +405,8 @@ async def get_room(room_id: str):
             **room.playback_state.dict(),
             "current_time": room_manager.get_current_playback_time(room_id)
         },
-        active_users=room.active_connections
+        active_users=room.active_connections,
+        autoplay=room.autoplay
     )
 
 
@@ -408,11 +432,37 @@ async def leave_room(request: Request, room_id: str, user_id: str = Query(...)):
             "current_song": room.current_song.dict() if room.current_song else None,
             "playback_state": {
                 **room.playback_state.dict(),
-                "current_time": room_manager.get_current_playback_time(room_id)
-            }
+                "current_time": room_manager.get_current_playback_time(room_id)},
+            "autoplay": room.autoplay
         })
 
     return {"message": "Left room successfully"}
+
+
+@app.post("/api/room/{room_id}/autoplay/toggle")
+async def toggle_autoplay(room_id: str):
+    """Toggle autoplay setting for a room"""
+    new_state = room_manager.toggle_autoplay(room_id)
+    if new_state is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    room = room_manager.get_room(room_id)
+
+    # Broadcast state change
+    message = WSMessage(
+        type=WSMessageType.ROOM_STATS_UPDATE,
+        data={
+            "active_users": room.active_connections,
+            "autoplay": room.autoplay,
+        }
+    )
+    await ws_manager.broadcast_to_room(room_id, message)
+
+    # If autoplay was just enabled and conditions are met, add a song
+    if new_state and room.current_song and len(room.queue) == 0:
+        asyncio.create_task(async_check_autoplay(room_id))
+
+    return {"success": True, "autoplay": new_state}
 
 
 # ===== Queue Endpoints =====
@@ -435,7 +485,7 @@ async def add_song_to_queue(room_id: str, request: AddSongRequest, user_id: str 
     song_data = {
         'video_id': request.video_id,
         'title': request.title,
-        'artist': request.artist,
+        'channel': request.channel,
         'duration': request.duration,
         'thumbnail': request.thumbnail
     }
@@ -451,27 +501,34 @@ async def add_song_to_queue(room_id: str, request: AddSongRequest, user_id: str 
     was_empty = not room.current_song and not room.playback_state.is_playing
 
     # Add song to the queue
-    song = room_manager.add_song_to_queue(room_id, song_data, user_id, user_name)
+    song, autoplay_removed = room_manager.add_song_to_queue(room_id, song_data, user_id, user_name)
     if not song:
         raise HTTPException(status_code=500, detail="Failed to add song")
+    # If autoplay song was removed, broadcast queue update first
+    if autoplay_removed:
+        await ws_manager.broadcast_queue_reordered(room_id, [s.dict() for s in room.queue])
 
-    # Check if the song became current song AFTER adding
-    became_current_song = was_empty and room.current_song and room.current_song.id == song.id
+    else:  # This is the standard path where a song is simply added.
+        # Check if the song became current song AFTER adding
+        became_current_song = was_empty and room.current_song and room.current_song.id == song.id
+        if became_current_song:
+            # Send SONG_CHANGED for first song that becomes current
+            await ws_manager.broadcast_song_changed(room_id, song.dict())
 
-    if became_current_song:
-        # Send SONG_CHANGED for first song that becomes current
-        await ws_manager.broadcast_song_changed(room_id, song.dict())
+            # Also broadcast playback state if room should be playing
+            if room.playback_state.is_playing:
+                await ws_manager.broadcast_playback_state(
+                    room_id,
+                    room.playback_state.is_playing,
+                    room.playback_state.current_time
+                )
 
-        # Also broadcast playback state if room should be playing
-        if room.playback_state.is_playing:
-            await ws_manager.broadcast_playback_state(
-                room_id,
-                room.playback_state.is_playing,
-                room.playback_state.current_time
-            )
-    else:
-        # Send SONG_ADDED for songs added to queue
-        await ws_manager.broadcast_song_added(room_id, song.dict())
+            # If autoplay is enabled and queue is empty, check for autoplay songs
+            if room.autoplay and len(room.queue) == 0:
+                asyncio.create_task(async_check_autoplay(room_id))
+        else:
+            # Send SONG_ADDED for songs added to queue
+            await ws_manager.broadcast_song_added(room_id, song.dict())
 
     # Start preloading in background (non-blocking)
     upcoming_video_ids = [s.video_id for s in room.queue[:5]]
@@ -513,10 +570,10 @@ async def skip_to_next_song(
     room = room_manager.get_room(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
-
-    # Check if user is in room
     if not any(m.user_id == user_id for m in room.members):
         raise HTTPException(status_code=403, detail="Not a room member")
+    if not room.current_song:
+        raise HTTPException(status_code=400, detail="No song currently playing")
 
     next_song = room_manager.skip_to_next_song(room_id)
 
@@ -525,16 +582,18 @@ async def skip_to_next_song(
         room_id,
         next_song.dict() if next_song else None
     )
-
-    # FIXED: Broadcast updated queue after skipping
+    # Broadcast updated queue after skipping
     await ws_manager.broadcast_queue_reordered(room_id, [s.dict() for s in room.queue])
-
-    # FIXED: Also broadcast playback state change to ensure song starts playing
+    # Also broadcast playback state change to ensure song starts playing
     await ws_manager.broadcast_playback_state(
         room_id,
         room.playback_state.is_playing,
         room.playback_state.current_time
     )
+
+    # Check autoplay after skipping
+    if next_song and room.autoplay and len(room.queue) == 0:
+        asyncio.create_task(async_check_autoplay(room_id))
 
     return {
         "current_song": next_song.dict() if next_song else None,
@@ -559,12 +618,15 @@ async def remove_song_from_queue(
         raise HTTPException(status_code=403, detail="Not a room member")
 
     success = room_manager.remove_song(room_id, song_id)
-
     if not success:
         raise HTTPException(status_code=404, detail="Song not found")
 
     # Broadcast to room
     await ws_manager.broadcast_song_removed(room_id, song_id)
+
+    # Check if we need to add autoplay song while song was removed
+    if room.current_song and len(room.queue) == 0:
+        asyncio.create_task(async_check_autoplay(room_id))
 
     return {
         "message": "Song removed",
@@ -717,7 +779,8 @@ async def get_user_current_room(user_id: str):
                 **room.playback_state.dict(),
                 "current_time": room_manager.get_current_playback_time(room.room_id)
             },
-            active_users=room.active_connections
+            active_users=room.active_connections,
+            autoplay=room.autoplay
         )
     }
 
@@ -744,7 +807,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
     # Update connection count and broadcast to room
     connection_count = ws_manager.get_room_connection_count(room_id)
     room_manager.update_active_connections(room_id, connection_count)
-    await ws_manager.broadcast_room_stats_update(room_id, connection_count)
+    await ws_manager.broadcast_room_stats_update(room_id, connection_count, room.autoplay)
 
     # Send current room state to the connected user
     await ws_manager.broadcast_room_state(room_id, {
@@ -754,8 +817,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
         "current_song": room.current_song.dict() if room.current_song else None,
         "playback_state": {
             **room.playback_state.dict(),
-            "current_time": room_manager.get_current_playback_time(room_id)
-        }
+            "current_time": room_manager.get_current_playback_time(room_id)},
+        "autoplay": room.autoplay
     })
 
     try:
@@ -786,7 +849,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
             # Update connection count and broadcast to room
             connection_count = ws_manager.get_room_connection_count(room_id_disconnected)
             room_manager.update_active_connections(room_id_disconnected, connection_count)
-            await ws_manager.broadcast_room_stats_update(room_id_disconnected, connection_count)
+            await ws_manager.broadcast_room_stats_update(room_id_disconnected, connection_count,
+                                                         room.autoplay)
 
 
 if __name__ == "__main__":

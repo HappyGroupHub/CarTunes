@@ -10,6 +10,7 @@ from typing import Dict, Optional, List
 
 import requests
 
+from innertube.recommendations import get_yt_recommendations, get_yt_music_recommendations
 import utilities as utils
 from models import Room, Member, Song, PlaybackState
 
@@ -63,7 +64,9 @@ class RoomManager:
                 last_update=datetime.now()
             ),
             last_activity=datetime.now(),
-            active_connections=0
+            active_connections=0,
+            autoplay=config['autoplay_default'],
+            autoplay_playlist=[]
         )
 
         self.rooms[room_id] = room
@@ -85,7 +88,26 @@ class RoomManager:
             return self.rooms.get(room_id)
         return None
 
-    # ===== Room Actions =====
+    def get_current_playback_time(self, room_id: str) -> float:
+        """Calculate current playback time based on last update"""
+        room = self.rooms.get(room_id)
+        if not room or not room.current_song:
+            return 0.0
+
+        if room.playback_state.is_playing:
+            # Calculate elapsed time since last update
+            elapsed = (datetime.now() - room.playback_state.last_update).total_seconds()
+            current_time = room.playback_state.current_time + elapsed
+
+            # Don't exceed song duration
+            if current_time > room.current_song.duration:
+                return float(room.current_song.duration)
+
+            return current_time
+        else:
+            return room.playback_state.current_time
+
+    # ===== Room Actions - Info =====
 
     def join_room(self, room_id: str, user_id: str, user_name: str = "User") -> Optional[Room]:
         """Join an existing room"""
@@ -110,18 +132,6 @@ class RoomManager:
 
         return room
 
-    def update_room_activity(self, room_id: str):
-        """Update room's last activity timestamp"""
-        if room_id in self.rooms:
-            self.rooms[room_id].last_activity = datetime.now()
-
-    def update_active_connections(self, room_id: str, count: int):
-        """Update the number of active WebSocket connections"""
-        if room_id in self.rooms:
-            self.rooms[room_id].active_connections = count
-            if count > 0:
-                self.update_room_activity(room_id)
-
     def leave_room(self, room_id: str, user_id: str) -> bool:
         """Remove user from room"""
         if room_id not in self.rooms:
@@ -139,6 +149,20 @@ class RoomManager:
             logger.info(f"Room {room_id} deleted (no members)")
 
         return True
+
+    def update_room_activity(self, room_id: str):
+        """Update room's last activity timestamp"""
+        if room_id in self.rooms:
+            self.rooms[room_id].last_activity = datetime.now()
+
+    def update_active_connections(self, room_id: str, count: int):
+        """Update the number of active WebSocket connections"""
+        if room_id in self.rooms:
+            self.rooms[room_id].active_connections = count
+            if count > 0:
+                self.update_room_activity(room_id)
+
+    # ===== Room Actions - Queue =====
 
     def start_audio_ready_playback(self, room_id: str, video_id: str):
         """Start playback when audio is confirmed ready"""
@@ -158,18 +182,27 @@ class RoomManager:
         return False
 
     def add_song_to_queue(self, room_id: str, song_data: dict, user_id: str, user_name: str) -> \
-            Optional[Song]:
+            tuple[Optional[Song], bool]:
         """Add a song to the room queue"""
         room = self.rooms.get(room_id)
         if not room:
             return None
+
+        # Remove autoplay queue if someone added a song
+        autoplay_removed = False
+        if len(room.queue) == 1 and room.queue[0].requester_name == "自動播放":
+            removed_song = room.queue.pop(0)
+            logger.info(
+                f"Removed autoplay song '{removed_song.title}' in queue for room {room_id}.")
+            room.autoplay_playlist = []  # Clear autoplay_playlist
+            autoplay_removed = True
 
         # Create song entry
         song = Song(
             id=f"{room_id}_{len(room.queue)}_{song_data['video_id']}",
             video_id=song_data['video_id'],
             title=song_data['title'],
-            artist=song_data.get('artist'),
+            channel=song_data.get('channel', 'Unknown Artist'),
             duration=song_data.get('duration', 0),
             thumbnail=song_data.get('thumbnail', ''),
             requester_id=user_id,
@@ -200,7 +233,7 @@ class RoomManager:
         # Update activity
         room.last_activity = datetime.now()
         logger.info(f"Song {song_data['video_id']} added to room {room_id}")
-        return song
+        return song, autoplay_removed
 
     def skip_to_next_song(self, room_id: str) -> Optional[Song]:
         """Skip to the next song in queue"""
@@ -244,25 +277,6 @@ class RoomManager:
         room.last_activity = datetime.now()
 
         return True
-
-    def get_current_playback_time(self, room_id: str) -> float:
-        """Calculate current playback time based on last update"""
-        room = self.rooms.get(room_id)
-        if not room or not room.current_song:
-            return 0.0
-
-        if room.playback_state.is_playing:
-            # Calculate elapsed time since last update
-            elapsed = (datetime.now() - room.playback_state.last_update).total_seconds()
-            current_time = room.playback_state.current_time + elapsed
-
-            # Don't exceed song duration
-            if current_time > room.current_song.duration:
-                return float(room.current_song.duration)
-
-            return current_time
-        else:
-            return room.playback_state.current_time
 
     def remove_song(self, room_id: str, song_id: str) -> bool:
         """Remove a song from the queue"""
@@ -309,6 +323,114 @@ class RoomManager:
         """Update position numbers for all songs in queue"""
         for i, song in enumerate(room.queue):
             song.position = i
+
+    # ===== Autoplay Related =====
+
+    def toggle_autoplay(self, room_id: str) -> Optional[bool]:
+        """Toggle autoplay setting for a room"""
+        room = self.get_room(room_id)
+        if not room:
+            return None
+
+        room.autoplay = not room.autoplay
+
+        # Clear autoplay playlist when disabling
+        if not room.autoplay:
+            room.autoplay_playlist = []
+
+        logger.info(f"Room {room_id} autoplay toggled to: {room.autoplay}")
+        return room.autoplay
+
+    def check_and_add_autoplay_song(self, room_id: str) -> Optional[Song]:
+        """Check if autoplay should add a song, add it if needed"""
+        room = self.get_room(room_id)
+        if not room or not room.autoplay:
+            return None
+
+        # Check if conditions are met: current song playing and no songs in queue
+        if not room.current_song or len(room.queue) > 0:
+            return None
+
+        # First check if we have songs in autoplay_playlist
+        if room.autoplay_playlist:
+            # Get first song from playlist
+            next_song_data = room.autoplay_playlist.pop(0)
+            new_song = Song(
+                id=f"{room_id}_autoplay_{len(room.queue)}_{next_song_data['video_id']}",
+                video_id=next_song_data['video_id'],
+                title=next_song_data['title'],
+                channel=next_song_data.get('channel', 'Unknown Artist'),
+                duration=utils.convert_duration_to_seconds(next_song_data['duration']) or 0,
+                thumbnail=next_song_data.get('thumbnail', ''),
+                requester_id="autoplay_system",
+                requester_name="自動播放",
+                added_at=datetime.now(),
+                position=len(room.queue)
+            )
+            room.queue.append(new_song)
+            logger.info(f"Added autoplay song from playlist: {new_song.title}")
+            return new_song
+
+        # No songs in autoplay_playlist, need to fetch recommendations
+        search_engine = config['autoplay_search_engine']
+
+        if search_engine == 'youtube_music':
+            recommendations = get_yt_music_recommendations(room.current_song.video_id)
+            if recommendations:
+                valid_songs = []
+                for rec in recommendations:
+                    if rec.get('duration') and utils.check_video_duration(rec['duration']):
+                        valid_songs.append({
+                            'video_id': rec['id'],
+                            'title': rec['title'],
+                            'channel': rec.get('channel', 'Unknown Artist'),
+                            'duration': rec['duration'],
+                            'thumbnail': rec.get('thumbnail', '')
+                        })
+                if valid_songs:
+                    # Add first song to queue
+                    first_song = valid_songs[0]
+                    new_song = Song(
+                        id=f"{room_id}_autoplay_{len(room.queue)}_{first_song['video_id']}",
+                        video_id=first_song['video_id'],
+                        title=first_song['title'],
+                        channel=first_song['channel'],
+                        duration=utils.convert_duration_to_seconds(first_song['duration']) or 0,
+                        thumbnail=first_song['thumbnail'],
+                        requester_id="autoplay_system",
+                        requester_name="自動播放",
+                        added_at=datetime.now(),
+                        position=len(room.queue)
+                    )
+                    room.queue.append(new_song)
+
+                    # Save rest to autoplay_playlist
+                    room.autoplay_playlist = valid_songs[1:]
+                    logger.info(f"Added autoplay song from YouTube Music for room {room_id}")
+                    return new_song
+
+        else:  # youtube search
+            recommendations = get_yt_recommendations(room.current_song.video_id)
+            if recommendations:
+                for rec in recommendations:
+                    if rec.get('duration') and utils.check_video_duration(rec['duration']):
+                        new_song = Song(
+                            id=f"{room_id}_autoplay_{len(room.queue)}_{rec['video_id']}",
+                            video_id=rec['id'],
+                            title=rec['title'],
+                            channel=rec.get('channel', 'Unknown Artist'),
+                            duration=utils.convert_duration_to_seconds(rec['duration']) or 0,
+                            thumbnail=rec.get('thumbnail', ''),
+                            requester_id="autoplay_system",
+                            requester_name="自動播放",
+                            added_at=datetime.now(),
+                            position=len(room.queue)
+                        )
+                        room.queue.append(new_song)
+                        logger.info(f"Added autoplay song from YouTube for room {room_id}")
+                        return new_song
+
+        return None
 
     # ===== Song Auto-paused Timer =====
 

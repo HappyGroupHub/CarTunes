@@ -74,12 +74,12 @@ def get_from_cache(video_id: str) -> Dict[str, Any]:
     return postback_cache.get(video_id, {})
 
 
-def estimate_postback_length(video_id: str, title: str, artist: str, duration: str,
+def estimate_postback_length(video_id: str, title: str, channel: str, duration: str,
                              thumbnail: str) -> int:
     """Estimate the length of postback data"""
     postback_data = (f"add_song:{video_id}"
                      f"|/title:{title}"
-                     f"|/artist:{artist}"
+                     f"|/channel:{channel}"
                      f"|/duration:{duration}"
                      f"|/thumbnail:{thumbnail}")
     return len(postback_data)
@@ -105,7 +105,7 @@ def create_room_via_api(user_id: str, user_name: str):
 
 
 def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name: str, title: str = None,
-                     artist: str = None, duration: str = None, thumbnail: str = None):
+                     channel: str = None, duration: str = None, thumbnail: str = None):
     """Add song to queue via internal API call."""
     try:
         duration_seconds = utils.convert_duration_to_seconds(duration) if duration else None
@@ -114,7 +114,7 @@ def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name: str, 
             json={
                 "video_id": video_id,
                 "title": title,
-                "artist": artist,
+                "channel": channel,
                 "duration": duration_seconds,
                 "thumbnail": thumbnail
             },
@@ -156,12 +156,12 @@ def create_search_results_carousel(search_results: list, user_input: str, page: 
     for result in current_results:
         video_id = result.get('id')
         title = result.get('title', 'Unknown Title')
-        artist = result.get('channel', 'Unknown')
+        channel = result.get('channel', 'Unknown')
         duration = result.get('duration', 'N/A')
         thumbnail = result.get('thumbnail', '')
 
         # Estimate postback data length
-        estimated_length = estimate_postback_length(video_id, title, artist, duration, thumbnail)
+        estimated_length = estimate_postback_length(video_id, title, channel, duration, thumbnail)
 
         # Use cache if postback data would be too long
         if estimated_length > 290:  # 300 characters is the limit for postback data
@@ -170,7 +170,7 @@ def create_search_results_carousel(search_results: list, user_input: str, page: 
         else:
             postback_data = (f"add_song:{video_id}"
                              f"|/title:{title}"
-                             f"|/artist:{artist}"
+                             f"|/channel:{channel}"
                              f"|/duration:{duration}"
                              f"|/thumbnail:{thumbnail}")
 
@@ -205,7 +205,7 @@ def create_search_results_carousel(search_results: list, user_input: str, page: 
                     },
                     {
                         "type": "text",
-                        "text": artist,
+                        "text": channel,
                         "size": "xs",
                         "color": "#aaaaaa",
                         "wrap": True,
@@ -513,7 +513,7 @@ async def handle_message(event):
 
                 result = add_song_via_api(room_id, video_id, user_id, user_name,
                                           title=audio_info.get('title', 'Unknown'),
-                                          artist=audio_info.get('uploader', 'Unknown'),
+                                          channel=audio_info.get('channel', 'Unknown'),
                                           duration=audio_info.get('duration', '0'),
                                           thumbnail=audio_info.get(
                                               'thumbnail', 'https://i.imgur.com/zSJgfAT.jpeg'))
@@ -572,12 +572,12 @@ async def handle_postback(event):
             # Extract video ID and add song
             data_parts = postback_data.split("|/")
             video_id = data_parts[0].split(":", 1)[1]
-            title = artist = duration = thumbnail = None
+            title = channel = duration = thumbnail = None
             for part in data_parts[1:]:
                 if part.startswith("title:"):
                     title = part[6:]
-                elif part.startswith("artist:"):
-                    artist = part[7:]
+                elif part.startswith("channel:"):
+                    channel = part[8:]
                 elif part.startswith("duration:"):
                     duration = part[9:]
                 elif part.startswith("thumbnail:"):
@@ -599,7 +599,7 @@ async def handle_postback(event):
             # Add song asynchronously in the background
             try:
                 result = add_song_via_api(room_id, video_id, user_id, user_name, title=title,
-                                          artist=artist, duration=duration, thumbnail=thumbnail)
+                                          channel=channel, duration=duration, thumbnail=thumbnail)
             except Exception as e:
                 print(f"Error in async song addition: {e}")
 
@@ -610,7 +610,7 @@ async def handle_postback(event):
 
             if cached_data:
                 title = cached_data.get('title', 'Unknown Title')
-                artist = cached_data.get('channel', 'Unknown')
+                channel = cached_data.get('channel', 'Unknown')
                 duration = cached_data.get('duration', 'N/A')
                 thumbnail = cached_data.get('thumbnail', '')
 
@@ -630,7 +630,7 @@ async def handle_postback(event):
                 # Add song asynchronously in the background
                 try:
                     result = add_song_via_api(room_id, video_id, user_id, user_name,
-                                              title=title, artist=artist, duration=duration,
+                                              title=title, channel=channel, duration=duration,
                                               thumbnail=thumbnail)
                 except Exception as e:
                     print(f"Error in async song addition: {e}")
