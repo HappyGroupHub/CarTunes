@@ -1121,7 +1121,7 @@ export default function RoomPage() {
                 clearTimeout(messageTimeoutRef.current)
             }
 
-            const message = newState ? "音樂已在此裝置靜音" : "開始在裝置播放音樂"
+            const message = newState ? "靜音本地播放" : "已解除本地靜音"
             setStatusMessage(message)
             setStatusMessageColor(newState ? "text-red-500" : "text-green-400")
             setStatusMessageOpacity(1)
@@ -1166,7 +1166,7 @@ export default function RoomPage() {
                 if (messageTimeoutRef.current) {
                     clearTimeout(messageTimeoutRef.current)
                 }
-                setStatusMessage("瀏覽器不支援複製")
+                setStatusMessage("網頁不支援複製")
                 setStatusIconComponent(AlertCircle)
                 setStatusMessageColor("text-red-500")
                 setStatusMessageOpacity(1)
@@ -1185,7 +1185,7 @@ export default function RoomPage() {
             if (messageTimeoutRef.current) {
                 clearTimeout(messageTimeoutRef.current)
             }
-            setStatusMessage("已複製房間代碼")
+            setStatusMessage("複製房間代碼")
             setStatusIconComponent(Check)
             setStatusMessageColor("text-green-400")
             setStatusMessageOpacity(1)
