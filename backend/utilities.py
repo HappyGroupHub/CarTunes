@@ -11,7 +11,7 @@ def config_file_generator():
     """Generate the template of config file"""
     with open('config.yml', 'w', encoding="utf8") as file:
         file.write("""# ++--------------------------------++
-# | CarTunes            (MIT LICENSE)|
+# | CarTunes       (AGPL-3.0 LICENSE)|
 # | Made by LD                v0.1.0 |
 # ++--------------------------------++
 
