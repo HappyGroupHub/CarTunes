@@ -1121,7 +1121,7 @@ export default function RoomPage() {
                 clearTimeout(messageTimeoutRef.current)
             }
 
-            const message = newState ? "靜音本地播放" : "已解除本地靜音"
+            const message = newState ? "靜音本地播放" : "解除本地靜音"
             setStatusMessage(message)
             setStatusMessageColor(newState ? "text-red-500" : "text-green-400")
             setStatusMessageOpacity(1)
