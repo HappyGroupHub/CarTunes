@@ -156,6 +156,77 @@ export default function RoomPage() {
         }
     }, [])
 
+    useEffect(() => {
+        // Check if the Media Session API is supported by the browser
+        if (!('mediaSession' in navigator)) {
+            return;
+        }
+
+        const {current_song} = room ?? {};
+
+        if (current_song) {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: current_song.title,
+                artist: 'CarTunes｜播歌吧',
+                album: current_song.channel,
+                artwork: [
+                    {
+                        src: current_song.thumbnail || '/placeholder.jpg',
+                        sizes: '512x512',
+                        type: 'image/jpeg',
+                    },
+                ],
+            });
+        } else {
+            // Clear metadata when no song is playing
+            navigator.mediaSession.metadata = null;
+        }
+    }, [room?.current_song]);
+
+    // This useEffect handles the media control buttons from mobile devives local control panel
+    useEffect(() => {
+        if (!('mediaSession' in navigator)) {
+            return;
+        }
+
+        // --- Play/Pause Button ---
+        // The 'playing'/'paused' state is automatically handled by the playbackState update below.
+        // We just need to define what happens when the user clicks the buttons.
+        navigator.mediaSession.setActionHandler('play', () => {
+            // Ensure you have a flag for user interaction to allow autoplay
+            setHasUserInteractedWithPlayButton(true);
+            togglePlayback();
+        });
+
+        navigator.mediaSession.setActionHandler('pause', () => {
+            togglePlayback();
+        });
+
+        // --- Next Track Button (Skip Forward) ---
+        if (room && room.queue.length > 0) {
+            navigator.mediaSession.setActionHandler('nexttrack', () => {
+                skipToNext();
+            });
+        } else {
+            // If there's no next song, disable the button by setting the handler to null.
+            // The OS will gray out or hide the "next" control.
+            navigator.mediaSession.setActionHandler('nexttrack', null);
+        }
+
+        // --- Previous Track Button (Skip Backward) ---
+        // It's currently set to null, disabled.
+        navigator.mediaSession.setActionHandler('previoustrack', null);
+
+    }, [room, togglePlayback, skipToNext]); // Re-run when dependencies change
+
+
+    // This useEffect updates the mobile local control panel playback state
+    useEffect(() => {
+        if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = room?.playback_state.is_playing ? 'playing' : 'paused';
+        }
+    }, [room?.playback_state.is_playing]);
+
     // Callbacks for audio-loader, made stable by not depending on 'room' directly
     const handleLoadedMetadata = useCallback((audioElement: HTMLAudioElement, initialTime: number) => {
         // If initialTime is negative (loading state), don't set audio currentTime yet
