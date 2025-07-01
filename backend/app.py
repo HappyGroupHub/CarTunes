@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Request
@@ -28,6 +29,9 @@ logger = logging.getLogger(__name__)
 room_manager = RoomManager()
 ws_manager = ConnectionManager()
 config = utils.read_config()
+
+# Dictionary to store the last request time for each room and action, for throttling
+last_request_times = {}
 
 background_tasks = set()
 
@@ -442,6 +446,15 @@ async def leave_room(request: Request, room_id: str, user_id: str = Query(...)):
 @app.post("/api/room/{room_id}/autoplay/toggle")
 async def toggle_autoplay(room_id: str):
     """Toggle autoplay setting for a room"""
+    # Throttle this action
+    if room_id in last_request_times and time.time() - last_request_times[room_id].get(
+            'autoplay_toggle', 0) < 1:
+        raise HTTPException(status_code=429, detail="Too many requests")
+
+    if room_id not in last_request_times:
+        last_request_times[room_id] = {}
+    last_request_times[room_id]['autoplay_toggle'] = time.time()
+
     new_state = room_manager.toggle_autoplay(room_id)
     if new_state is None:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -567,6 +580,15 @@ async def skip_to_next_song(
         user_id: str = Query(...)
 ):
     """Skip to next song"""
+    # Throttle this action
+    if room_id in last_request_times and time.time() - last_request_times[room_id].get('skip',
+                                                                                       0) < 1:
+        raise HTTPException(status_code=429, detail="Too many requests")
+
+    if room_id not in last_request_times:
+        last_request_times[room_id] = {}
+    last_request_times[room_id]['skip'] = time.time()
+
     room = room_manager.get_room(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -675,6 +697,21 @@ async def update_playback(
         user_id: str = Query(...)
 ):
     """Update playback state (play/pause)"""
+    # Throttle this action
+    if (room_id in last_request_times and
+            time.time() - last_request_times[room_id].get('playback', 0) < 1):
+        room = room_manager.get_room(room_id)
+        if not room:
+            raise HTTPException(status_code=404, detail="Room not found")
+        return {
+            "is_playing": room.playback_state.is_playing,
+            "current_time": room_manager.get_current_playback_time(room_id)
+        }
+
+    if room_id not in last_request_times:
+        last_request_times[room_id] = {}
+    last_request_times[room_id]['playback'] = time.time()
+
     room = room_manager.get_room(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -692,12 +729,12 @@ async def update_playback(
     if not success:
         raise HTTPException(status_code=500, detail="Failed to update playback")
 
-    # Broadcast to room
-    await ws_manager.broadcast_playback_state(
+    # Broadcast to room playback asynchronously so it doesn't block
+    asyncio.create_task(ws_manager.broadcast_playback_state(
         room_id,
         request.is_playing,
         request.current_time
-    )
+    ))
 
     return {
         "is_playing": request.is_playing,

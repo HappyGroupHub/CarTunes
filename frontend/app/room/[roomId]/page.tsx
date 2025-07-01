@@ -993,22 +993,8 @@ export default function RoomPage() {
             // Scenario 1: Room is NOT playing music (backend says paused)
             // User clicks play -> start room music
             try {
-                await audioEl.play() // Attempt local play
-                console.log("Local audio play initiated (Room was paused).")
-                // If local play succeeds, update backend to start room music
-                setRoom((prev) =>
-                    prev
-                        ? {
-                            ...prev,
-                            playback_state: {
-                                ...prev.playback_state,
-                                is_playing: true,
-                                current_time: audioEl.currentTime,
-                            },
-                        }
-                        : null,
-                )
-                await fetch(`${API_ENDPOINTS.PLAYBACK(roomId)}?user_id=${userId}`, {
+                // First, send request to backend
+                const response = await fetch(`${API_ENDPOINTS.PLAYBACK(roomId)}?user_id=${userId}`, {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({
@@ -1016,11 +1002,37 @@ export default function RoomPage() {
                         current_time: audioEl.currentTime,
                     }),
                 })
+
+                if (response.status === 429) {
+                    console.log("Playback state getting throttle blocked, ignoring")
+                    return
+                } else if (!response.ok) {
+                    throw new Error("Failed to update playback state")
+                }
+
+
+                const backendData = await response.json()
+
+                // Now play locally after backend confirms
+                await audioEl.play()
+                console.log("Local audio play initiated after backend confirmation (Room was paused).")
+
+                // Update local state with backend response
+                setRoom((prev) =>
+                    prev
+                        ? {
+                            ...prev,
+                            playback_state: {
+                                ...prev.playback_state,
+                                is_playing: backendData.is_playing,
+                                current_time: backendData.current_time,
+                            },
+                        }
+                        : null,
+                )
             } catch (e) {
-                console.error("Error playing audio (Room was paused, autoplay blocked):", e)
-                setAudioError("播放失敗，正在重試...")
-                // This is a local issue, not a room issue
-                retryAudioPlayback()
+                console.error("Error updating playback state: ", e)
+                // If backend fails, don't play locally
             }
         } else {
             // Room IS playing music (backend says playing)
@@ -1065,38 +1077,60 @@ export default function RoomPage() {
             } else {
                 // Scenario 3: Local audio IS playing (user wants to pause)
                 // User clicks pause -> pause room music
-                audioEl.pause()
-                console.log("Local audio paused.")
-                // Update local state and send update to backend
-                setRoom((prev) =>
-                    prev
-                        ? {
-                            ...prev,
-                            playback_state: {
-                                ...prev.playback_state,
-                                is_playing: false,
-                                current_time: audioEl.currentTime,
-                            },
-                        }
-                        : null,
-                )
-                await fetch(`${API_ENDPOINTS.PLAYBACK(roomId)}?user_id=${userId}`, {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({
-                        is_playing: false,
-                        current_time: audioEl.currentTime,
-                    }),
-                })
+                try {
+                    // First, send request to backend
+                    const response = await fetch(`${API_ENDPOINTS.PLAYBACK(roomId)}?user_id=${userId}`, {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({
+                            is_playing: false,
+                            current_time: audioEl.currentTime,
+                        }),
+                    })
+
+                    if (response.status === 429) {
+                        console.log("Playback state getting throttle blocked, ignoring")
+                        return
+                    } else if (!response.ok) {
+                        throw new Error("Failed to update playback state")
+                    }
+
+                    const backendData = await response.json()
+
+                    // Now pause locally after backend confirms
+                    audioEl.pause()
+                    console.log("Local audio paused after backend confirmation.")
+
+                    // Update local state with backend response
+                    setRoom((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                playback_state: {
+                                    ...prev.playback_state,
+                                    is_playing: backendData.is_playing,
+                                    current_time: backendData.current_time,
+                                },
+                            }
+                            : null,
+                    )
+                } catch (e) {
+                    console.error("Error updating playback state: ", e)
+                    // If backend fails, don't pause locally
+                }
             }
         }
     }
 
     async function skipToNext() {
         try {
-            await fetch(`${API_ENDPOINTS.SKIP_NEXT(roomId)}?user_id=${userId}`, {
-                method: "POST",
+            const response = await fetch(`${API_ENDPOINTS.SKIP_NEXT(roomId)}?user_id=${userId}`, {
+                method: "POST"
             })
+            if (response.status === 429) {
+                console.log("Skipping song getting throttle blocked, ignoring")
+                return
+            }
         } catch (err) {
             console.error("Failed to skip song:", err)
         }
@@ -1217,11 +1251,31 @@ export default function RoomPage() {
             const response = await fetch(`${API_ENDPOINTS.ROOM(roomId)}/autoplay/toggle`, {
                 method: "POST",
             })
+
+            // Handle throttling - just do nothing
+            if (response.status === 429) {
+                console.log("Autoplay toggle throttled, ignoring")
+                return
+            }
+
             if (!response.ok) {
                 throw new Error("Failed to toggle autoplay")
             }
+
             const data = await response.json()
             console.log("Autoplay toggled:", data.autoplay)
+
+            // Update local state immediately with backend response
+            setAutoplayEnabled(data.autoplay)
+            setRoom((prev) =>
+                prev
+                    ? {
+                        ...prev,
+                        autoplay: data.autoplay,
+                    }
+                    : null
+            )
+
         } catch (error) {
             console.error("Error toggling autoplay:", error)
             setErrorMessage("自動播放切換失敗")
