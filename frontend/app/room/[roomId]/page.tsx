@@ -1428,7 +1428,7 @@ export default function RoomPage() {
                         {/* Make this whole div clickable for copying room ID */}
                         <div
                             onClick={copyRoomId}
-                            className="flex items-center space-x-2 cursor-pointer hover:bg-white/10 p-1 rounded-md transition-colors"
+                            className="flex items-center space-x-2 cursor-pointer active:bg-white/10 md:hover:bg-white/10 p-1 rounded-md transition-colors"
                         >
                             <Music className="h-6 w-6 text-white" strokeWidth={2}/>
                             <span className="text-white font-semibold">房間 {roomId}</span>
@@ -1439,7 +1439,7 @@ export default function RoomPage() {
                             onClick={toggleMute}
                             size="icon"
                             variant="ghost"
-                            className={`${isMuted ? "text-red-500 hover:bg-red-500/20" : "text-white hover:bg-white/20"} w-8 h-8`}
+                            className={`${isMuted ? "text-red-500 active:bg-red-500/20 md:hover:bg-red-500/20" : "text-white active:bg-white/20 md:hover:bg-white/20"} w-8 h-8`}
                             aria-label={isMuted ? "Unmute audio" : "Mute audio"}
                         >
                             {isMuted ? <VolumeX className="h-4 w-4"/> : <Volume2 className="h-4 w-4"/>}
@@ -1556,7 +1556,7 @@ export default function RoomPage() {
                                                     (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))
                                                 }
                                                 size="icon"
-                                                className="bg-white/20 hover:bg-white/30 text-white rounded-full w-10 h-10 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                className="bg-white/20 active:bg-white/30 md:hover:bg-white/30 text-white rounded-full w-10 h-10 disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 {room.playback_state.is_playing && hasUserInteractedWithPlayButton ? (
                                                     <Pause className="h-5 w-5" strokeWidth={2}/>
@@ -1567,7 +1567,7 @@ export default function RoomPage() {
                                             <Button
                                                 onClick={skipToNext}
                                                 size="icon"
-                                                className="bg-white/20 hover:bg-white/30 text-white rounded-full w-10 h-10"
+                                                className="bg-white/20 active:bg-white/30 md:hover:bg-white/30 text-white rounded-full w-10 h-10"
                                             >
                                                 <SkipForward className="h-5 w-5" strokeWidth={2}/>
                                             </Button>
@@ -1647,7 +1647,7 @@ export default function RoomPage() {
                                                     }}
                                                     size="sm"
                                                     variant="ghost"
-                                                    className="text-white/60 hover:text-blue-400 hover:bg-blue-500/20 flex-shrink-0 w-7 h-7 p-0"
+                                                    className="text-white/60 active:text-blue-400 active:bg-blue-500/20 md:hover:text-blue-400 md:hover:bg-blue-500/20 flex-shrink-0 w-7 h-7 p-0"
                                                     aria-label="Bring song to top"
                                                 >
                                                     <ArrowUpNarrowWide className="h-4 w-4" strokeWidth={2}/>
@@ -1658,7 +1658,7 @@ export default function RoomPage() {
                                         {/* Delete button revealed on swipe */}
                                         <div
                                             className={`absolute inset-y-0 right-0 flex items-center justify-center bg-red-600 rounded-lg transition-transform duration-300 ease-in-out ${
-                                                swipedSongId === song.id ? "translate-x-0" : "translate-x-full"
+                                                swipedSongId === song.id ? "-translate-x-[60px]" : "translate-x-full"
                                             }`}
                                             style={{width: "60px"}} // Smaller width for the delete area
                                         >
@@ -1669,7 +1669,7 @@ export default function RoomPage() {
                                                 }}
                                                 size="icon"
                                                 variant="ghost"
-                                                className="text-white hover:bg-red-700"
+                                                className="text-white active:bg-red-700 md:hover:bg-red-700"
                                                 aria-label="Delete song"
                                             >
                                                 <Trash2 className="h-5 w-5" strokeWidth={2}/>
