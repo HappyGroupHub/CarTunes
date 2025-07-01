@@ -1005,8 +1005,16 @@ export default function RoomPage() {
 
                 if (response.status === 429) {
                     console.log("Playback state getting throttle blocked, ignoring")
+                    if ('mediaSession' in navigator) {
+                        console.log("Setting media session to paused")
+                        navigator.mediaSession.playbackState = 'paused'
+                    }
                     return
                 } else if (!response.ok) {
+                    if ('mediaSession' in navigator) {
+                        console.log("Setting media session to paused")
+                        navigator.mediaSession.playbackState = 'paused'
+                    }
                     throw new Error("Failed to update playback state")
                 }
 
@@ -1030,8 +1038,10 @@ export default function RoomPage() {
                         }
                         : null,
                 )
+                setAudioError(null)
             } catch (e) {
                 console.error("Error updating playback state: ", e)
+                setAudioError("播放失敗，請稍後再試")
                 // If backend fails, don't play locally
             }
         } else {
@@ -1068,6 +1078,7 @@ export default function RoomPage() {
                             }
                             : null,
                     )
+                    setAudioError(null)
                 } catch (e) {
                     console.error("Error playing audio (Room was already playing, autoplay blocked):", e)
                     setAudioError("播放失敗，正在重試...")
@@ -1090,8 +1101,16 @@ export default function RoomPage() {
 
                     if (response.status === 429) {
                         console.log("Playback state getting throttle blocked, ignoring")
+                        if ('mediaSession' in navigator) {
+                            console.log("Setting media session to playing")
+                            navigator.mediaSession.playbackState = 'playing'
+                        }
                         return
                     } else if (!response.ok) {
+                        if ('mediaSession' in navigator) {
+                            console.log("Setting media session to playing")
+                            navigator.mediaSession.playbackState = 'playing'
+                        }
                         throw new Error("Failed to update playback state")
                     }
 
@@ -1114,8 +1133,10 @@ export default function RoomPage() {
                             }
                             : null,
                     )
+                    setAudioError(null)
                 } catch (e) {
                     console.error("Error updating playback state: ", e)
+                    setAudioError("暫停失敗，請稍後再試")
                     // If backend fails, don't pause locally
                 }
             }
