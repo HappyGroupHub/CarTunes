@@ -1733,7 +1733,7 @@ export default function RoomPage() {
                                         {/* Delete button revealed on swipe */}
                                         <div
                                             className={`absolute inset-y-0 right-0 flex items-center justify-center bg-red-600 rounded-lg transition-transform duration-300 ease-in-out ${
-                                                swipedSongId === song.id ? "-translate-x-[60px]" : "translate-x-full"
+                                                swipedSongId === song.id ? "translate-x-0" : "translate-x-full"
                                             }`}
                                             style={{width: "60px"}} // Smaller width for the delete area
                                         >
