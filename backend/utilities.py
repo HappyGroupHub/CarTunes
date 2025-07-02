@@ -64,7 +64,7 @@ autoplay_default: true
 autoplay_search_engine: 'youtube_music'
 
 
-# --- Rooms Broadcast/Cleanup Settings ---
+# --- Rooms Broadcast/Cleanup/Throttle Settings ---
 
 # Room's code generation logic, 6-digit code.
 # Default is false, using random alphanumeric code, For example, ABC123.
@@ -83,6 +83,18 @@ room_cleanup_after_inactivity: 120
 # The interval for wss to broadcast current song progress to clients, aka the website.
 # In seconds, default is 5 seconds.
 progress_broadcast_interval: 5
+
+# Throttle seconds for room's play/pause/next/autoplay-toggle actions.
+# This is used to prevent same action in the same room being sent too frequently.
+# Default is 1 second.
+action_throttle_seconds: 1
+
+# Throttle settings for user clicking BringSongToTop button.
+# Users can bring songs to top up to 2 times within any 5-second window by default.
+# This is counted per user without affecting other users.
+bring_to_top_throttle:
+  max_requests: 2
+  window_seconds: 5
 """
                    )
         file.close()
@@ -121,7 +133,12 @@ def read_config():
                 'numeric_room_code': data['numeric_room_code'],
                 'pause_music_after_no_connections': data['pause_music_after_no_connections'],
                 'room_cleanup_after_inactivity': data['room_cleanup_after_inactivity'],
-                'progress_broadcast_interval': data['progress_broadcast_interval']
+                'progress_broadcast_interval': data['progress_broadcast_interval'],
+                'action_throttle_seconds': data['action_throttle_seconds'],
+                'bring_to_top_throttle': {
+                    'max_requests': data['bring_to_top_throttle']['max_requests'],
+                    'window_seconds': data['bring_to_top_throttle']['window_seconds']
+                }
             }
             file.close()
 

@@ -454,7 +454,7 @@ async def toggle_autoplay(room_id: str):
     """Toggle autoplay setting for a room"""
     # Throttle this action
     if room_id in last_request_times and time.time() - last_request_times[room_id].get(
-            'autoplay_toggle', 0) < 1:
+            'autoplay_toggle', 0) < config['action_throttle_seconds']:
         raise HTTPException(status_code=429, detail="Too many requests")
 
     if room_id not in last_request_times:
@@ -587,8 +587,8 @@ async def skip_to_next_song(
 ):
     """Skip to next song"""
     # Throttle this action
-    if room_id in last_request_times and time.time() - last_request_times[room_id].get('skip',
-                                                                                       0) < 1:
+    if room_id in last_request_times and time.time() - last_request_times[room_id].get('skip', 0) < \
+            config['action_throttle_seconds']:
         raise HTTPException(status_code=429, detail="Too many requests")
 
     if room_id not in last_request_times:
@@ -691,14 +691,15 @@ async def reorder_queue(
         if user_id not in user_bring_to_top_requests:
             user_bring_to_top_requests[user_id] = []
 
-        # Remove requests older than 5 seconds
+        # Remove requests older than config window seconds
         user_bring_to_top_requests[user_id] = [
             req_time for req_time in user_bring_to_top_requests[user_id]
-            if current_time - req_time < 5
+            if current_time - req_time < config['bring_to_top_throttle']['window_seconds']
         ]
 
         # Check if user has made 2 or more requests in the last 5 seconds, throttle it
-        if len(user_bring_to_top_requests[user_id]) >= 2:
+        if len(user_bring_to_top_requests[user_id]) >= config['bring_to_top_throttle'][
+            'max_requests']:
             return {
                 "message": "Queue unchanged, blocked by throttle",
                 "queue": [s.dict() for s in room.queue]
@@ -734,7 +735,8 @@ async def update_playback(
     """Update playback state (play/pause)"""
     # Throttle this action
     if (room_id in last_request_times and
-            time.time() - last_request_times[room_id].get('playback', 0) < 1):
+            time.time() - last_request_times[room_id].get('playback', 0) < config[
+                'action_throttle_seconds']):
         room = room_manager.get_room(room_id)
         if not room:
             raise HTTPException(status_code=404, detail="Room not found")
