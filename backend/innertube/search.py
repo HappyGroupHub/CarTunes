@@ -3,6 +3,28 @@
 import requests
 
 
+def search_youtube(query: str) -> list:
+    """Searches YouTube for videos based on the query.
+    :param query: The search query.
+    :return: A list of dictionaries containing video details.
+    :rtype: List
+    """
+    data = _search_youtube(query)
+    results = parse_youtube_results(data)
+    filtered_results = [item for item in results if item.get('type') not in ('short', 'live')]
+    return filtered_results
+
+
+def search_youtube_music(query: str) -> list:
+    """Searches YouTube Music for songs based on the query.
+    :param query: The search query.
+    :return: A list of dictionaries containing music details.
+    :rtype: List
+    """
+    data = _search_youtube_music(query)
+    return parse_youtube_music_search_results(data)
+
+
 def _search_youtube(query: str) -> dict:
     url = "https://youtubei.googleapis.com/youtubei/v1/search?prettyPrint=false"
 
@@ -10,7 +32,9 @@ def _search_youtube(query: str) -> dict:
         "context": {
             "client": {
                 "clientName": "WEB",
-                "clientVersion": "2.20240401.05.00"
+                "clientVersion": "2.20240401.05.00",
+                "hl": "zh-TW",
+                "gl": "TW"
             }
         },
         "query": query,
@@ -33,7 +57,9 @@ def _search_youtube_music(query: str) -> dict:
         "context": {
             "client": {
                 "clientName": "WEB_REMIX",
-                "clientVersion": "1.20240403.01.00"
+                "clientVersion": "1.20240403.01.00",
+                "hl": "zh-TW",
+                "gl": "TW"
             }
         },
         "query": query,
@@ -206,25 +232,3 @@ def parse_youtube_music_search_results(data: dict) -> list:
             })
 
     return results
-
-
-def search_youtube(query: str) -> list:
-    """Searches YouTube for videos based on the query.
-    :param query: The search query.
-    :return: A list of dictionaries containing video details.
-    :rtype: List
-    """
-    data = _search_youtube(query)
-    results = parse_youtube_results(data)
-    filtered_results = [item for item in results if item.get('type') not in ('short', 'live')]
-    return filtered_results
-
-
-def search_youtube_music(query: str) -> list:
-    """Searches YouTube Music for songs based on the query.
-    :param query: The search query.
-    :return: A list of dictionaries containing music details.
-    :rtype: List
-    """
-    data = _search_youtube_music(query)
-    return parse_youtube_music_search_results(data)

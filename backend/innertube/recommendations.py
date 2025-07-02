@@ -14,7 +14,9 @@ def get_yt_recommendations(video_id: str) -> Optional[List[Dict]]:
         "context": {
             "client": {
                 "clientName": "WEB",
-                "clientVersion": "2.20240401.05.00"
+                "clientVersion": "2.20240401.05.00",
+                "hl": "zh-TW",
+                "gl": "TW"
             }
         },
         "videoId": video_id,
@@ -51,7 +53,9 @@ def get_yt_music_recommendations(video_id: str) -> Optional[List[Dict]]:
         "context": {
             "client": {
                 "clientName": "WEB_REMIX",
-                "clientVersion": "1.20240403.01.00"
+                "clientVersion": "1.20240403.01.00",
+                "hl": "zh-TW",
+                "gl": "TW"
             }
         },
         "playlistId": playlist_id,
