@@ -1662,6 +1662,9 @@ export default function RoomPage() {
                                             </Button>
                                             <Button
                                                 onClick={skipToNext}
+                                                disabled={
+                                                    (room.autoplay && !room.queue.length)
+                                                }
                                                 size="icon"
                                                 className="bg-white/20 active:bg-white/30 md:hover:bg-white/30 text-white rounded-full w-10 h-10"
                                             >
