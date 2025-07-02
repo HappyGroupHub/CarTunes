@@ -154,17 +154,9 @@ async def root():
     """Root endpoint"""
     return {
         "service": "CarTunes API",
-        "version": "2.0.0",
-        "status": "running",
+        "version": "v0.1.0",
         "active_rooms": len(room_manager.rooms),
-        "features": ["real-time-sync", "websocket", "auto-cleanup"]
     }
-
-
-@app.get("/api/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy"}
 
 
 # ===== Audio Endpoints =====
