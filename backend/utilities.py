@@ -63,6 +63,11 @@ autoplay_default: true
 # 'youtube' - Uses YouTube to find the next song, might be more relevant but stuck to the same artist.
 autoplay_search_engine: 'youtube_music'
 
+# Search and recommendations API localization parameters.
+# hl means Host Language, gl means Geolocation.
+hl_param: 'zh-TW'
+gl_param: 'TW'
+
 
 # --- Rooms Broadcast/Cleanup/Throttle Settings ---
 
@@ -130,6 +135,8 @@ def read_config():
                 'cache_duration_hours': data['cache_duration_hours'],
                 'autoplay_default': data['autoplay_default'],
                 'autoplay_search_engine': data['autoplay_search_engine'],
+                'hl_param': data['hl_param'],
+                'gl_param': data['gl_param'],
                 'numeric_room_code': data['numeric_room_code'],
                 'pause_music_after_no_connections': data['pause_music_after_no_connections'],
                 'room_cleanup_after_inactivity': data['room_cleanup_after_inactivity'],

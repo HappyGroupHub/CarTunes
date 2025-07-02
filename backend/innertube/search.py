@@ -1,6 +1,9 @@
 # The InnerTube API allows you to search for videos/musics on YouTube without
 # using the official YouTube Data API.
 import requests
+import utilities as utils
+
+config = utils.read_config()
 
 
 def search_youtube(query: str) -> list:
@@ -33,8 +36,8 @@ def _search_youtube(query: str) -> dict:
             "client": {
                 "clientName": "WEB",
                 "clientVersion": "2.20240401.05.00",
-                "hl": "zh-TW",
-                "gl": "TW"
+                "hl": config['hl_param'],
+                "gl": config['gl_param']
             }
         },
         "query": query,
@@ -58,8 +61,8 @@ def _search_youtube_music(query: str) -> dict:
             "client": {
                 "clientName": "WEB_REMIX",
                 "clientVersion": "1.20240403.01.00",
-                "hl": "zh-TW",
-                "gl": "TW"
+                "hl": config['hl_param'],
+                "gl": config['gl_param']
             }
         },
         "query": query,

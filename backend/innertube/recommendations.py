@@ -1,6 +1,9 @@
 from typing import List, Dict, Optional
 
 import requests
+import utilities as utils
+
+config = utils.read_config()
 
 
 def get_yt_recommendations(video_id: str) -> Optional[List[Dict]]:
@@ -15,8 +18,8 @@ def get_yt_recommendations(video_id: str) -> Optional[List[Dict]]:
             "client": {
                 "clientName": "WEB",
                 "clientVersion": "2.20240401.05.00",
-                "hl": "zh-TW",
-                "gl": "TW"
+                "hl": config['hl_param'],
+                "gl": config['gl_param']
             }
         },
         "videoId": video_id,
@@ -54,8 +57,8 @@ def get_yt_music_recommendations(video_id: str) -> Optional[List[Dict]]:
             "client": {
                 "clientName": "WEB_REMIX",
                 "clientVersion": "1.20240403.01.00",
-                "hl": "zh-TW",
-                "gl": "TW"
+                "hl": config['hl_param'],
+                "gl": config['gl_param']
             }
         },
         "playlistId": playlist_id,
