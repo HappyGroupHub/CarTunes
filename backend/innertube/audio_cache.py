@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class AudioCacheManager:
     def __init__(self):
-        import backend.utilities as utils
+        import utilities as utils
         config = utils.read_config()
 
         self.cache_dir = tempfile.mkdtemp(prefix="cartunes_audio_")
