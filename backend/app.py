@@ -31,7 +31,13 @@ ws_manager = ConnectionManager()
 config = utils.read_config()
 
 # Dictionary to store the last request time for each room and action, for throttling
+# Used for playback control, skipping, and autoplay toggling
+# Structure: {room_id: {'action': timestamp}}
 last_request_times = {}
+
+# Dictionary to store per-user request counts for bring to top throttling
+# Structure: {user_id: [(timestamp1, timestamp2, ...)]}
+user_bring_to_top_requests = {}
 
 background_tasks = set()
 
@@ -666,13 +672,42 @@ async def reorder_queue(
     room = room_manager.get_room(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
-
     # Check if user is in room
     if not any(m.user_id == user_id for m in room.members):
         raise HTTPException(status_code=403, detail="Not a room member")
 
-    success = room_manager.reorder_queue(room_id, request.song_ids)
+    # Check if this is a "bring to top" action (moving one song to position 0)
+    is_bring_to_top = (
+            len(request.song_ids) == len(room.queue) and  # All songs are included
+            len(room.queue) > 1 and  # There's more than one song
+            request.song_ids[0] != room.queue[0].id  # First song is changing
+    )
 
+    # Apply per-user throttling for bring to top actions
+    if is_bring_to_top:
+        current_time = time.time()
+
+        # Initialize user's request list if not exists
+        if user_id not in user_bring_to_top_requests:
+            user_bring_to_top_requests[user_id] = []
+
+        # Remove requests older than 5 seconds
+        user_bring_to_top_requests[user_id] = [
+            req_time for req_time in user_bring_to_top_requests[user_id]
+            if current_time - req_time < 5
+        ]
+
+        # Check if user has made 2 or more requests in the last 5 seconds, throttle it
+        if len(user_bring_to_top_requests[user_id]) >= 2:
+            return {
+                "message": "Queue unchanged, blocked by throttle",
+                "queue": [s.dict() for s in room.queue]
+            }
+
+        # Add current request timestamp for successful bring to top
+        user_bring_to_top_requests[user_id].append(current_time)
+
+    success = room_manager.reorder_queue(room_id, request.song_ids)
     if not success:
         raise HTTPException(status_code=400, detail="Invalid song order")
 

@@ -75,13 +75,20 @@ export default function RoomPage() {
     const [room, setRoom] = useState<Room | null>(null)
     const [currentTime, setCurrentTime] = useState(0)
     const [isLoading, setIsLoading] = useState(true)
-    const [showErrorModal, setShowErrorModal] = useState(false)
-    const [errorMessage, setErrorMessage] = useState("")
     const [audioLoading, setAudioLoading] = useState(false)
     const [audioError, setAudioError] = useState<string | null>(null)
     const [songDownloading, setSongDownloading] = useState(false)
     const [hasUserInteractedWithPlayButton, setHasUserInteractedWithPlayButton] = useState(false)
     const [autoplayEnabled, setAutoplayEnabled] = useState(false)
+
+    const handleErrorModalClose = () => {
+        setShowErrorModal(false)
+        router.push("/")
+    }
+    const [showErrorModal, setShowErrorModal] = useState(false)
+    const [errorMessage, setErrorMessage] = useState("")
+    const [modalButtonText, setModalButtonText] = useState("確認");
+    const [modalAction, setModalAction] = useState<() => void>(() => handleErrorModalClose);
 
     const [isMuted, setIsMuted] = useState(false)
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
@@ -1178,16 +1185,27 @@ export default function RoomPage() {
         const newSongIds = newQueue.map((s) => s.id)
 
         try {
-            await fetch(`${API_ENDPOINTS.REORDER_QUEUE(roomId)}?user_id=${userId}`, {
+            const response = await fetch(`${API_ENDPOINTS.REORDER_QUEUE(roomId)}?user_id=${userId}`, {
                 method: "PUT",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({song_ids: newSongIds}),
             })
-            // Optimistic update or wait for WebSocket ROOM_STATE/QUEUE_REORDERED
-            setRoom((prev) => (prev ? {...prev, queue: newQueue} : null))
+
+            const data = await response.json()
+
+            if (data.message === "Queue reordered") {
+                setRoom((prev) => (prev ? {...prev, queue: newQueue} : null))
+            } else if (data.message === "Queue unchanged, blocked by throttle") {
+                // Use a div with white-space pre-wrap for multiline messages
+                setErrorMessage(
+                    '<div style="white-space: pre-wrap;">嘿！慢下來\n插那麼多首歌可能會被討厭喔...</div>'
+                );
+                setModalButtonText("知道了");
+                setModalAction(() => () => setShowErrorModal(false));
+                setShowErrorModal(true);
+            }
         } catch (err) {
             console.error("Failed to bring song to top:", err)
-            // Revert optimistic update if needed
         }
     }
 
@@ -1231,10 +1249,6 @@ export default function RoomPage() {
         }
     }, [])
 
-    const handleErrorModalClose = () => {
-        setShowErrorModal(false)
-        router.push("/")
-    }
 
     const toggleMute = () => {
         if (audioRef.current) {
@@ -1455,11 +1469,18 @@ export default function RoomPage() {
             <audio ref={audioRef} preload="metadata" crossOrigin="anonymous"/>
 
             {/* Error Modal */}
-            <Modal isOpen={showErrorModal} onClose={handleErrorModalClose} title="提示">
-                <div className="text-center py-4">
-                    <p className="text-gray-700 mb-6">{errorMessage}</p>
-                    <Button onClick={handleErrorModalClose} className="w-full">
-                        確認
+            <Modal
+                isOpen={showErrorModal}
+                onClose={modalAction}
+                title="提示"
+            >
+                <div className="text-center py-2">
+                    <div
+                        className="text-gray-700 mb-4"
+                        dangerouslySetInnerHTML={{__html: errorMessage}}
+                    />
+                    <Button onClick={modalAction} className="w-full">
+                        {modalButtonText}
                     </Button>
                 </div>
             </Modal>
