@@ -432,6 +432,10 @@ async def leave_room(request: Request, room_id: str, user_id: str = Query(...)):
     if not success:
         raise HTTPException(status_code=404, detail="Room not found")
 
+    # Cleanup user_bring_to_top_requests for this user
+    if user_id in user_bring_to_top_requests:
+        del user_bring_to_top_requests[user_id]
+
     # Broadcast updated room state to active WebSocket connections
     room = room_manager.get_room(room_id)
     if room:  # Room still exists (has other members)
@@ -445,6 +449,10 @@ async def leave_room(request: Request, room_id: str, user_id: str = Query(...)):
                 "current_time": room_manager.get_current_playback_time(room_id)},
             "autoplay": room.autoplay
         })
+    if not room:  # Room no longer exists (last member left)
+        # Cleanup last_request_times for this room
+        if room_id in last_request_times:
+            del last_request_times[room_id]
 
     return {"message": "Left room successfully"}
 
