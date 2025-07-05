@@ -179,7 +179,7 @@ export default function RoomPage() {
                 album: current_song.channel,
                 artwork: [
                     {
-                        src: current_song.thumbnail || '/placeholder.jpg',
+                        src: current_song.thumbnail || "/placeholder.jpg",
                         sizes: '512x512',
                         type: 'image/jpeg',
                     },
@@ -1449,250 +1449,253 @@ export default function RoomPage() {
                 </div>
             </div>
 
-            <div className="max-w-md mx-auto p-4 space-y-4">
-                {/* Current Song */}
-                <Card className="bg-white/10 backdrop-blur-sm border-white/20">
-                    <CardContent className="p-3 flex flex-col">
-                        {room.current_song ? (
-                            <>
-                                <div className="flex items-center mb-3">
-                                    {/* Song Thumbnail */}
-                                    {room.current_song.thumbnail && (
-                                        <img
-                                            src={room.current_song.thumbnail || "/placeholder.jpg"}
-                                            alt={room.current_song.title}
-                                            className="w-28 h-28 rounded-lg object-cover mr-4"
-                                        />
-                                    )}
-                                    {/* Song Info (Title, Channel, Requester) */}
-                                    <div className="flex-1 min-w-0 text-left">
-                                        <h2 className="text-white font-bold text-base line-clamp-2 mb-1">{room.current_song.title}</h2>
-                                        {room.current_song.channel && (
-                                            <p className="text-white/70 text-sm truncate mb-1">{room.current_song.channel}</p>
+            <div
+                className={`transition-all duration-300 ${!isConnected ? 'blur-sm pointer-events-none opacity-50' : ''}`}>
+                <div className="max-w-md mx-auto p-4 space-y-4">
+                    {/* Current Song */}
+                    <Card className="bg-white/10 backdrop-blur-sm border-white/20">
+                        <CardContent className="p-3 flex flex-col">
+                            {room.current_song ? (
+                                <>
+                                    <div className="flex items-center mb-3">
+                                        {/* Song Thumbnail */}
+                                        {room.current_song.thumbnail && (
+                                            <img
+                                                src={room.current_song.thumbnail || "/placeholder.jpg"}
+                                                alt={room.current_song.title}
+                                                className="w-28 h-28 rounded-lg object-cover mr-4"
+                                            />
                                         )}
-                                        <div className="flex items-center space-x-1 text-white/60 text-xs">
-                                            <User className="h-3 w-3" strokeWidth={2}/>
-                                            <span>{room.current_song.requester_name}</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Audio Status Indicators */}
-                                {(songDownloading || audioLoading || audioError || isNewUserLoadingAudio || (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))) && (
-                                    <div className="flex items-center justify-center space-x-2 mt-2 mb-2 text-sm">
-                                        {songDownloading && (
-                                            <span className="text-blue-400 flex items-center">
-                <Download className="h-4 w-4 animate-bounce mr-1" strokeWidth={2}/>
-                音訊載入中...
-            </span>
-                                        )}
-                                        {isNewUserLoadingAudio && !songDownloading && (
-                                            <span className="text-blue-400 flex items-center">
-                <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
-                音訊載入中...
-            </span>
-                                        )}
-                                        {(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && !songDownloading && !isNewUserLoadingAudio && (
-                                            <span className="text-yellow-400 flex items-center">
-                <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
-                檢查音訊狀態...
-            </span>
-                                        )}
-                                        {audioLoading && !songDownloading && !isNewUserLoadingAudio && !(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && (
-                                            <span className="text-white/60 flex items-center">
-                <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
-                音訊載入中...
-            </span>
-                                        )}
-                                        {audioError && !songDownloading && !isNewUserLoadingAudio && (
-                                            <span className="text-red-400 flex items-center">
-                <AlertCircle className="h-4 w-4 mr-1" strokeWidth={2}/>
-                                                {audioError}
-            </span>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Progress bar and controls on one line */}
-                                <div className="flex items-center space-x-2 mt-1">
-                                    {/* Progress bar and time labels grouped together */}
-                                    <div className="flex-1">
-                                        <Progress value={progress} className="h-1"/>
-                                        <div className="flex justify-between text-white/60 text-xs mt-0.5">
-                                            <span>{formatTime(Math.floor(Math.max(0, currentTime)))}</span>
-                                            <span>{formatTime(room.current_song.duration)}</span>
-                                        </div>
-                                    </div>
-                                    {/* Controls */}
-                                    <div className="flex flex-col justify-start">
-                                        <div className="flex items-center space-x-2 -mt-4">
-                                            <Button
-                                                onClick={togglePlayback}
-                                                disabled={
-                                                    audioLoading ||
-                                                    songDownloading ||
-                                                    isNewUserLoadingAudio ||
-                                                    (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))
-                                                }
-                                                size="icon"
-                                                className="bg-white/20 active:bg-white/30 md:hover:bg-white/30 text-white rounded-full w-10 h-10 disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
-                                                {room.playback_state.is_playing && hasUserInteractedWithPlayButton ? (
-                                                    <Pause className="h-5 w-5" strokeWidth={2}/>
-                                                ) : (
-                                                    <Play className="h-5 w-5" strokeWidth={2}/>
-                                                )}
-                                            </Button>
-                                            <Button
-                                                onClick={skipToNext}
-                                                disabled={
-                                                    (room.autoplay && !room.queue.length)
-                                                }
-                                                size="icon"
-                                                className="bg-white/20 active:bg-white/30 md:hover:bg-white/30 text-white rounded-full w-10 h-10"
-                                            >
-                                                <SkipForward className="h-5 w-5" strokeWidth={2}/>
-                                            </Button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </>
-                        ) : (
-                            <div className="text-center text-white/60 py-8">
-                                <Music className="h-12 w-12 mx-auto mb-4 opacity-50" strokeWidth={2}/>
-                                <p>目前沒有播放歌曲</p>
-                                <p className="text-sm mt-2">透過 LINE Bot 點歌開始播放</p>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* Queue */}
-                <Card className="bg-white/10 backdrop-blur-sm border-white/20">
-                    <CardContent className="p-4">
-                        <h3 className="text-white font-semibold mb-4 flex items-center justify-between">
-                            <div className="flex items-center">
-                                <Music className="h-4 w-4 mr-2" strokeWidth={2}/>
-                                播放清單 ({room.queue.length})
-                            </div>
-                            <div className="flex items-center space-x-2">
-                                <span
-                                    className="text-xs text-white/70">自動播放</span>
-                                <AutoplayToggle isEnabled={room.autoplay}
-                                                onToggle={handleAutoplayToggle}/>
-                            </div>
-                        </h3>
-
-                        {room.queue.length > 0 ? (
-                            <div className="space-y-3">
-                                {room.queue.map((song, index) => (
-                                    <div
-                                        key={song.id}
-                                        className="relative overflow-hidden rounded-lg"
-                                        onTouchStart={(e) => handleTouchStart(e, song.id)}
-                                        onTouchMove={(e) => handleTouchMove(e, song.id)}
-                                        onTouchEnd={() => handleTouchEnd(song.id)}
-                                        onMouseDown={(e) => handleMouseDown(e, song.id)}
-                                        onMouseMove={(e) => handleMouseMove(e, song.id)}
-                                        onMouseUp={handleMouseUp}
-                                        onMouseLeave={handleMouseLeave}
-                                    >
-                                        {/* Main song info container */}
-                                        <div
-                                            className={`flex items-center gap-x-2 p-3 bg-white/5 rounded-lg transition-transform duration-300 ease-in-out ${
-                                                swipedSongId === song.id ? "-translate-x-[60px]" : "translate-x-0"
-                                            }`}
-                                        >
-                                            <div
-                                                className="text-white/60 text-sm font-mono w-2.5 flex-shrink-0">{index + 1}</div>
-                                            {song.thumbnail && (
-                                                <img
-                                                    src={song.thumbnail || "/placeholder.jpg"}
-                                                    alt={song.title}
-                                                    className="w-12 h-12 rounded object-cover flex-shrink-0"
-                                                />
+                                        {/* Song Info (Title, Channel, Requester) */}
+                                        <div className="flex-1 min-w-0 text-left">
+                                            <h2 className="text-white font-bold text-base line-clamp-2 mb-1">{room.current_song.title}</h2>
+                                            {room.current_song.channel && (
+                                                <p className="text-white/70 text-sm truncate mb-1">{room.current_song.channel}</p>
                                             )}
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-white font-medium truncate">{song.title}</p>
-                                                <div className="flex items-center gap-x-1 text-white/60 text-sm">
-                                                    <span>{formatTime(song.duration)}</span>
-                                                    <span>•</span>
-                                                    <span>{song.requester_name}</span>
-                                                </div>
+                                            <div className="flex items-center space-x-1 text-white/60 text-xs">
+                                                <User className="h-3 w-3" strokeWidth={2}/>
+                                                <span>{room.current_song.requester_name}</span>
                                             </div>
-                                            {/* Bring to Top Button */}
-                                            {index !== 0 && ( // Only show if not the first song
+                                        </div>
+                                    </div>
+
+                                    {/* Audio Status Indicators */}
+                                    {(songDownloading || audioLoading || audioError || isNewUserLoadingAudio || (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))) && (
+                                        <div className="flex items-center justify-center space-x-2 mt-2 mb-2 text-sm">
+                                            {songDownloading && (
+                                                <span className="text-blue-400 flex items-center">
+                    <Download className="h-4 w-4 animate-bounce mr-1" strokeWidth={2}/>
+                    音訊載入中...
+                </span>
+                                            )}
+                                            {isNewUserLoadingAudio && !songDownloading && (
+                                                <span className="text-blue-400 flex items-center">
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
+                    音訊載入中...
+                </span>
+                                            )}
+                                            {(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && !songDownloading && !isNewUserLoadingAudio && (
+                                                <span className="text-yellow-400 flex items-center">
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
+                    檢查音訊狀態...
+                </span>
+                                            )}
+                                            {audioLoading && !songDownloading && !isNewUserLoadingAudio && !(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && (
+                                                <span className="text-white/60 flex items-center">
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
+                    音訊載入中...
+                </span>
+                                            )}
+                                            {audioError && !songDownloading && !isNewUserLoadingAudio && (
+                                                <span className="text-red-400 flex items-center">
+                    <AlertCircle className="h-4 w-4 mr-1" strokeWidth={2}/>
+                                                    {audioError}
+                </span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Progress bar and controls on one line */}
+                                    <div className="flex items-center space-x-2 mt-1">
+                                        {/* Progress bar and time labels grouped together */}
+                                        <div className="flex-1">
+                                            <Progress value={progress} className="h-1"/>
+                                            <div className="flex justify-between text-white/60 text-xs mt-0.5">
+                                                <span>{formatTime(Math.floor(Math.max(0, currentTime)))}</span>
+                                                <span>{formatTime(room.current_song.duration)}</span>
+                                            </div>
+                                        </div>
+                                        {/* Controls */}
+                                        <div className="flex flex-col justify-start">
+                                            <div className="flex items-center space-x-2 -mt-4">
+                                                <Button
+                                                    onClick={togglePlayback}
+                                                    disabled={
+                                                        audioLoading ||
+                                                        songDownloading ||
+                                                        isNewUserLoadingAudio ||
+                                                        (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))
+                                                    }
+                                                    size="icon"
+                                                    className="bg-white/20 active:bg-white/30 md:hover:bg-white/30 text-white rounded-full w-10 h-10 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    {room.playback_state.is_playing && hasUserInteractedWithPlayButton ? (
+                                                        <Pause className="h-5 w-5" strokeWidth={2}/>
+                                                    ) : (
+                                                        <Play className="h-5 w-5" strokeWidth={2}/>
+                                                    )}
+                                                </Button>
+                                                <Button
+                                                    onClick={skipToNext}
+                                                    disabled={
+                                                        (room.autoplay && !room.queue.length)
+                                                    }
+                                                    size="icon"
+                                                    className="bg-white/20 active:bg-white/30 md:hover:bg-white/30 text-white rounded-full w-10 h-10"
+                                                >
+                                                    <SkipForward className="h-5 w-5" strokeWidth={2}/>
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="text-center text-white/60 py-8">
+                                    <Music className="h-12 w-12 mx-auto mb-4 opacity-50" strokeWidth={2}/>
+                                    <p>目前沒有播放歌曲</p>
+                                    <p className="text-sm mt-2">透過 LINE Bot 點歌開始播放</p>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Queue */}
+                    <Card className="bg-white/10 backdrop-blur-sm border-white/20">
+                        <CardContent className="p-4">
+                            <h3 className="text-white font-semibold mb-4 flex items-center justify-between">
+                                <div className="flex items-center">
+                                    <Music className="h-4 w-4 mr-2" strokeWidth={2}/>
+                                    播放清單 ({room.queue.length})
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <span
+                                        className="text-xs text-white/70">自動播放</span>
+                                    <AutoplayToggle isEnabled={room.autoplay}
+                                                    onToggle={handleAutoplayToggle}/>
+                                </div>
+                            </h3>
+
+                            {room.queue.length > 0 ? (
+                                <div className="space-y-3">
+                                    {room.queue.map((song, index) => (
+                                        <div
+                                            key={song.id}
+                                            className="relative overflow-hidden rounded-lg"
+                                            onTouchStart={(e) => handleTouchStart(e, song.id)}
+                                            onTouchMove={(e) => handleTouchMove(e, song.id)}
+                                            onTouchEnd={() => handleTouchEnd(song.id)}
+                                            onMouseDown={(e) => handleMouseDown(e, song.id)}
+                                            onMouseMove={(e) => handleMouseMove(e, song.id)}
+                                            onMouseUp={handleMouseUp}
+                                            onMouseLeave={handleMouseLeave}
+                                        >
+                                            {/* Main song info container */}
+                                            <div
+                                                className={`flex items-center gap-x-2 p-3 bg-white/5 rounded-lg transition-transform duration-300 ease-in-out ${
+                                                    swipedSongId === song.id ? "-translate-x-[60px]" : "translate-x-0"
+                                                }`}
+                                            >
+                                                <div
+                                                    className="text-white/60 text-sm font-mono w-2.5 flex-shrink-0">{index + 1}</div>
+                                                {song.thumbnail && (
+                                                    <img
+                                                        src={song.thumbnail || "/placeholder.jpg"}
+                                                        alt={song.title}
+                                                        className="w-12 h-12 rounded object-cover flex-shrink-0"
+                                                    />
+                                                )}
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-white font-medium truncate">{song.title}</p>
+                                                    <div className="flex items-center gap-x-1 text-white/60 text-sm">
+                                                        <span>{formatTime(song.duration)}</span>
+                                                        <span>•</span>
+                                                        <span>{song.requester_name}</span>
+                                                    </div>
+                                                </div>
+                                                {/* Bring to Top Button */}
+                                                {index !== 0 && ( // Only show if not the first song
+                                                    <Button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation() // Prevent swipe interaction
+                                                            bringSongToTop(song.id)
+                                                        }}
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        className="text-white/60 active:text-blue-400 active:bg-blue-500/20 md:hover:text-blue-400 md:hover:bg-blue-500/20 flex-shrink-0 w-7 h-7 p-0"
+                                                        aria-label="Bring song to top"
+                                                    >
+                                                        <ArrowUpNarrowWide className="h-4 w-4" strokeWidth={2}/>
+                                                    </Button>
+                                                )}
+                                            </div>
+
+                                            {/* Delete button revealed on swipe */}
+                                            <div
+                                                className={`absolute inset-y-0 right-0 flex items-center justify-center bg-red-600 rounded-lg transition-transform duration-300 ease-in-out ${
+                                                    swipedSongId === song.id ? "translate-x-0" : "translate-x-full"
+                                                }`}
+                                                style={{width: "60px"}} // Smaller width for the delete area
+                                            >
                                                 <Button
                                                     onClick={(e) => {
                                                         e.stopPropagation() // Prevent swipe interaction
-                                                        bringSongToTop(song.id)
+                                                        removeSong(song.id)
                                                     }}
-                                                    size="sm"
+                                                    size="icon"
                                                     variant="ghost"
-                                                    className="text-white/60 active:text-blue-400 active:bg-blue-500/20 md:hover:text-blue-400 md:hover:bg-blue-500/20 flex-shrink-0 w-7 h-7 p-0"
-                                                    aria-label="Bring song to top"
+                                                    className="text-white active:bg-red-700 md:hover:bg-red-700"
+                                                    aria-label="Delete song"
                                                 >
-                                                    <ArrowUpNarrowWide className="h-4 w-4" strokeWidth={2}/>
+                                                    <Trash2 className="h-5 w-5" strokeWidth={2}/>
                                                 </Button>
-                                            )}
+                                            </div>
                                         </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center text-white/60 py-4">
+                                    <p>播放清單是空的</p>
+                                    <p className="text-sm mt-1">使用 LINE Bot 新增歌曲</p>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
 
-                                        {/* Delete button revealed on swipe */}
-                                        <div
-                                            className={`absolute inset-y-0 right-0 flex items-center justify-center bg-red-600 rounded-lg transition-transform duration-300 ease-in-out ${
-                                                swipedSongId === song.id ? "translate-x-0" : "translate-x-full"
-                                            }`}
-                                            style={{width: "60px"}} // Smaller width for the delete area
-                                        >
-                                            <Button
-                                                onClick={(e) => {
-                                                    e.stopPropagation() // Prevent swipe interaction
-                                                    removeSong(song.id)
-                                                }}
-                                                size="icon"
-                                                variant="ghost"
-                                                className="text-white active:bg-red-700 md:hover:bg-red-700"
-                                                aria-label="Delete song"
-                                            >
-                                                <Trash2 className="h-5 w-5" strokeWidth={2}/>
-                                            </Button>
-                                        </div>
+                    {/* Members */}
+                    <Card className="bg-white/10 backdrop-blur-sm border-white/20">
+                        <CardContent className="p-4">
+                            <h3 className="text-white font-semibold mb-4 flex items-center">
+                                <Users className="h-4 w-4 mr-2" strokeWidth={2}/>
+                                房間成員 ({room.members.length})
+                            </h3>
+
+                            <div className="space-y-2">
+                                {room.members.map((member) => (
+                                    <div key={member.user_id}
+                                         className="flex items-center space-x-3 p-2 bg-white/5 rounded">
+                                        <User className="h-4 w-4 text-white/60" strokeWidth={2}/>
+                                        <span className="text-white">{member.user_name}</span>
+                                        {member.user_id === userId && (
+                                            <Badge variant="secondary" className="bg-white/20 text-white text-xs">
+                                                您
+                                            </Badge>
+                                        )}
                                     </div>
                                 ))}
                             </div>
-                        ) : (
-                            <div className="text-center text-white/60 py-4">
-                                <p>播放清單是空的</p>
-                                <p className="text-sm mt-1">使用 LINE Bot 新增歌曲</p>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* Members */}
-                <Card className="bg-white/10 backdrop-blur-sm border-white/20">
-                    <CardContent className="p-4">
-                        <h3 className="text-white font-semibold mb-4 flex items-center">
-                            <Users className="h-4 w-4 mr-2" strokeWidth={2}/>
-                            房間成員 ({room.members.length})
-                        </h3>
-
-                        <div className="space-y-2">
-                            {room.members.map((member) => (
-                                <div key={member.user_id}
-                                     className="flex items-center space-x-3 p-2 bg-white/5 rounded">
-                                    <User className="h-4 w-4 text-white/60" strokeWidth={2}/>
-                                    <span className="text-white">{member.user_name}</span>
-                                    {member.user_id === userId && (
-                                        <Badge variant="secondary" className="bg-white/20 text-white text-xs">
-                                            您
-                                        </Badge>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </CardContent>
-                </Card>
+                        </CardContent>
+                    </Card>
+                </div>
             </div>
         </div>
     )
