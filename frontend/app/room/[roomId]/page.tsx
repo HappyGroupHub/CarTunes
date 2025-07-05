@@ -124,6 +124,7 @@ export default function RoomPage() {
     const newUserLoadingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const NEW_USER_LOADING_TIMEOUT = 5000 // 5 seconds
     const MAX_RETRY_ATTEMPTS = 2
+    const [isPlaybackRequestPending, setIsPlaybackRequestPending] = useState(false);
 
 
     useEffect(() => {
@@ -190,49 +191,51 @@ export default function RoomPage() {
         }
     }, [room?.current_song]);
 
-    // This useEffect handles the media control buttons from mobile devives local control panel
+    // This useEffect handles the media control buttons from the device's native UI
     useEffect(() => {
         if (!('mediaSession' in navigator)) {
             return;
         }
 
-        // --- Play/Pause Button ---
-        // The 'playing'/'paused' state is automatically handled by the playbackState update below.
-        // We just need to define what happens when the user clicks the buttons.
+        // --- Play Action ---
         navigator.mediaSession.setActionHandler('play', () => {
-            // Ensure you have a flag for user interaction to allow autoplay
             setHasUserInteractedWithPlayButton(true);
-            togglePlayback();
+            togglePlayback(); // Just call the function
         });
 
+        // --- Pause Action ---
         navigator.mediaSession.setActionHandler('pause', () => {
-            togglePlayback();
+            togglePlayback(); // Just call the function
         });
 
-        // --- Next Track Button (Skip Forward) ---
-        if (room && room.queue.length > 0) {
+        // --- Next Track Button ---
+        if (room && (room.queue.length > 0 || room.autoplay)) {
             navigator.mediaSession.setActionHandler('nexttrack', () => {
                 skipToNext();
             });
         } else {
-            // If there's no next song, disable the button by setting the handler to null.
-            // The OS will gray out or hide the "next" control.
             navigator.mediaSession.setActionHandler('nexttrack', null);
         }
 
-        // --- Previous Track Button (Skip Backward) ---
-        // It's currently set to null, disabled.
+        // --- Previous Track Button (Not implemented) ---
         navigator.mediaSession.setActionHandler('previoustrack', null);
 
-    }, [room, togglePlayback, skipToNext]); // Re-run when dependencies change
+    }, [room, togglePlayback, skipToNext]);
 
 
     // This useEffect updates the mobile local control panel playback state
     useEffect(() => {
-        if ('mediaSession' in navigator) {
+        if (!('mediaSession' in navigator)) return;
+
+        if (isPlaybackRequestPending) {
+            // While a request is in flight, the state is indeterminate.
+            // This prevents the UI from showing a wrong icon during the throttle period.
+            navigator.mediaSession.playbackState = 'none';
+        } else {
+            // Once the request is done, sync with the true state from the room.
             navigator.mediaSession.playbackState = room?.playback_state.is_playing ? 'playing' : 'paused';
         }
-    }, [room?.playback_state.is_playing]);
+    }, [room?.playback_state.is_playing, isPlaybackRequestPending]);
 
     // Callbacks for audio-loader, made stable by not depending on 'room' directly
     const handleLoadedMetadata = useCallback((audioElement: HTMLAudioElement, initialTime: number) => {
@@ -956,197 +959,77 @@ export default function RoomPage() {
     }
 
     async function togglePlayback() {
-        if (!room?.current_song || songDownloading) {
-            console.log("Cannot play due to no current song or downloading")
-            return
+        // Guard against spam clicks and invalid states like downloading or no song.
+        if (isPlaybackRequestPending || !room?.current_song || songDownloading) {
+            return;
         }
 
-        const audioEl = audioRef.current
-        if (!audioEl) return
+        const audioEl = audioRef.current;
+        if (!audioEl) return;
 
-        // Check if audio source is set
-        if (!audioEl.src || audioEl.src === '') {
-            console.log("Audio not loaded yet, loading now...")
+        // Set a flag to prevent further clicks until this operation is complete.
+        setIsPlaybackRequestPending(true);
 
-            // Load audio if not already loaded
-            await loadAudioForCurrentSong(
-                room.current_song.video_id,
-                Math.max(0, room.playback_state.current_time),
-                true, // We want to play after loading
-                true  // User has interacted
-            )
-
-            // Wait a bit for audio to load
-            await new Promise(resolve => setTimeout(resolve, 1000))
-
-            // Clear any error that might have been set
-            setAudioError(null)
+        // This ensures the first click on a device correctly enables audio playback.
+        if (!hasUserInteractedWithPlayButtonRef.current) {
+            setHasUserInteractedWithPlayButton(true);
+            hasUserInteractedWithPlayButtonRef.current = true;
         }
 
-        // If there's still an error after attempting to load, don't proceed
-        if (audioError && !audioEl.src) {
-            console.log("Cannot play due to audio error")
-            return
-        }
+        try {
+            // Scenario 1: The room is already playing, but our local audio is paused.
+            // This is a common case for new users due to browser autoplay policies.
+            // We just need to play the audio locally to sync up. No backend call is needed.
+            if (room.playback_state.is_playing && audioEl.paused) {
+                console.log("Local audio is paused while room is playing. Syncing now.");
+                // To be safe, let's fetch the latest room state to get the most accurate time.
+                const response = await fetch(API_ENDPOINTS.ROOM(roomId));
+                if (!response.ok) throw new Error("Could not fetch room state to sync audio.");
 
-        const roomIsPlaying = room.playback_state.is_playing // Backend's view of playback
-        const localAudioIsPlaying = !audioEl.paused // Local audio element's view
-
-        // Set user interaction flag immediately
-        setHasUserInteractedWithPlayButton(true)
-        hasUserInteractedWithPlayButtonRef.current = true
-
-        if (!roomIsPlaying) {
-            // Scenario 1: Room is NOT playing music (backend says paused)
-            // User clicks play -> start room music
-            try {
-                // First, send request to backend
-                const response = await fetch(`${API_ENDPOINTS.PLAYBACK(roomId)}?user_id=${userId}`, {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({
-                        is_playing: true,
-                        current_time: audioEl.currentTime,
-                    }),
-                })
-
-                if (response.status === 429) {
-                    console.log("Playback state getting throttle blocked, ignoring")
-                    if ('mediaSession' in navigator) {
-                        console.log("Setting media session to paused")
-                        navigator.mediaSession.playbackState = 'paused'
-                    }
-                    return
-                } else if (!response.ok) {
-                    if ('mediaSession' in navigator) {
-                        console.log("Setting media session to paused")
-                        navigator.mediaSession.playbackState = 'paused'
-                    }
-                    throw new Error("Failed to update playback state")
+                const latestRoomData = await response.json();
+                const latestCurrentTime = latestRoomData.playback_state.current_time;
+                if (latestCurrentTime >= 0) {
+                    audioEl.currentTime = latestCurrentTime;
                 }
-
-
-                const backendData = await response.json()
-
-                // Now play locally after backend confirms
-                await audioEl.play()
-                console.log("Local audio play initiated after backend confirmation (Room was paused).")
-
-                // Update local state with backend response
-                setRoom((prev) =>
-                    prev
-                        ? {
-                            ...prev,
-                            playback_state: {
-                                ...prev.playback_state,
-                                is_playing: backendData.is_playing,
-                                current_time: backendData.current_time,
-                            },
-                        }
-                        : null,
-                )
-                setAudioError(null)
-            } catch (e) {
-                console.error("Error updating playback state: ", e)
-                setAudioError("播放失敗，請稍後再試")
-                // If backend fails, don't play locally
+                await audioEl.play();
+                setAudioError(null); // Clear any previous playback errors
+                return; // Exit after successfully syncing the local player
             }
-        } else {
-            // Room IS playing music (backend says playing)
-            if (!localAudioIsPlaying) {
-                // Scenario 2: Local audio is NOT playing (new user, autoplay blocked)
-                // User clicks play -> only start local audio, do NOT send backend command
-                try {
-                    // Fetch latest current_time before playing to ensure accurate sync
-                    const response = await fetch(`${API_ENDPOINTS.ROOM(roomId)}`)
-                    const latestRoomData = await response.json()
-                    const latestCurrentTime = latestRoomData.playback_state.current_time
 
-                    // Only sync if backend has positive time (not in loading state)
-                    if (latestCurrentTime >= 0) {
-                        audioEl.currentTime = latestCurrentTime
-                        console.log(`Syncing audio to backend time: ${latestCurrentTime}`)
-                    } else {
-                        console.log(`Backend still loading (${latestCurrentTime}), keeping audio at current position`)
-                        // Don't set currentTime to negative values - let audio stay where it is
-                    }
-                    await audioEl.play()
-                    console.log("Local audio play initiated (Room was already playing).")
-                    // Update local state to reflect playing, but don't send backend command
-                    setRoom((prev) =>
-                        prev
-                            ? {
-                                ...prev,
-                                playback_state: {
-                                    ...prev.playback_state,
-                                    is_playing: true, // Local audio is now playing
-                                    current_time: latestCurrentTime,
-                                },
-                            }
-                            : null,
-                    )
-                    setAudioError(null)
-                } catch (e) {
-                    console.error("Error playing audio (Room was already playing, autoplay blocked):", e)
-                    setAudioError("播放失敗，正在重試...")
-                    // This is a local issue, not a room issue
-                    retryAudioPlayback()
-                }
-            } else {
-                // Scenario 3: Local audio IS playing (user wants to pause)
-                // User clicks pause -> pause room music
-                try {
-                    // First, send request to backend
-                    const response = await fetch(`${API_ENDPOINTS.PLAYBACK(roomId)}?user_id=${userId}`, {
-                        method: "POST",
-                        headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify({
-                            is_playing: false,
-                            current_time: audioEl.currentTime,
-                        }),
-                    })
+            // Scenario 2: This is a normal play/pause request.
+            // We determine the desired new state and tell the backend.
+            const desiredNewState = !room.playback_state.is_playing;
+            console.log(`Requesting playback state change to: ${desiredNewState ? 'playing' : 'paused'}`);
 
-                    if (response.status === 429) {
-                        console.log("Playback state getting throttle blocked, ignoring")
-                        if ('mediaSession' in navigator) {
-                            console.log("Setting media session to playing")
-                            navigator.mediaSession.playbackState = 'playing'
-                        }
-                        return
-                    } else if (!response.ok) {
-                        if ('mediaSession' in navigator) {
-                            console.log("Setting media session to playing")
-                            navigator.mediaSession.playbackState = 'playing'
-                        }
-                        throw new Error("Failed to update playback state")
-                    }
+            const response = await fetch(`${API_ENDPOINTS.PLAYBACK(roomId)}?user_id=${userId}`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    is_playing: desiredNewState,
+                    current_time: audioEl.currentTime,
+                }),
+            });
 
-                    const backendData = await response.json()
+            // The backend will now process this request. If successful, it will broadcast
+            // the new state via WebSocket, and our WebSocket handler will update the audio.
+            // We only need to check for errors here.
 
-                    // Now pause locally after backend confirms
-                    audioEl.pause()
-                    console.log("Local audio paused after backend confirmation.")
-
-                    // Update local state with backend response
-                    setRoom((prev) =>
-                        prev
-                            ? {
-                                ...prev,
-                                playback_state: {
-                                    ...prev.playback_state,
-                                    is_playing: backendData.is_playing,
-                                    current_time: backendData.current_time,
-                                },
-                            }
-                            : null,
-                    )
-                    setAudioError(null)
-                } catch (e) {
-                    console.error("Error updating playback state: ", e)
-                    setAudioError("暫停失敗，請稍後再試")
-                    // If backend fails, don't pause locally
-                }
+            if (response.status === 429) {
+                console.warn("Playback command was throttled by the server. No change was made.");
+                // No action needed. The UI already reflects the correct, unchanged state.
+            } else if (!response.ok) {
+                throw new Error("Failed to send playback command to the server.");
             }
+        } catch (error) {
+            console.error("Error in togglePlayback:", error);
+            setAudioError("設定音訊狀態失敗！請再試一次");
+        } finally {
+            // IMPORTANT: Reset the pending flag after a 1-second cooldown.
+            // This acts as a client-side throttle to prevent spamming the backend
+            // and is the key to preventing the double-click issue.
+            setTimeout(() => {
+                setIsPlaybackRequestPending(false);
+            }, 1000);
         }
     }
 
