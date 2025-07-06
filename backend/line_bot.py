@@ -3,6 +3,7 @@ import time
 import urllib
 from typing import Dict, Any
 
+import httpx
 import requests
 from fastapi import Request, HTTPException, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -90,13 +91,14 @@ def estimate_postback_length(video_id: str, title: str, channel: str, duration: 
 
 # ===== Call/Receive Internal Endpoints =====
 
-def create_room_via_api(user_id: str, user_name: str):
+async def create_room_via_api(user_id: str, user_name: str):
     """Create a room via internal API call."""
     try:
-        response = requests.post(
-            f"http://localhost:{config['api_endpoints_port']}/api/room/create",
-            params={"user_id": user_id, "user_name": user_name}
-        )
+        async with httpx.AsyncClient() as client:
+            response = requests.post(
+                f"http://localhost:{config['api_endpoints_port']}/api/room/create",
+                params={"user_id": user_id, "user_name": user_name}
+            )
         if response.status_code == 200:
             return response.json()
         else:
@@ -107,22 +109,24 @@ def create_room_via_api(user_id: str, user_name: str):
         return None
 
 
-def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name: str, title: str = None,
-                     channel: str = None, duration: str = None, thumbnail: str = None):
+async def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name: str,
+                           title: str = None,
+                           channel: str = None, duration: str = None, thumbnail: str = None):
     """Add song to queue via internal API call."""
     try:
         duration_seconds = utils.convert_duration_to_seconds(duration) if duration else None
-        response = requests.post(
-            f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/queue/add",
-            json={
-                "video_id": video_id,
-                "title": title,
-                "channel": channel,
-                "duration": duration_seconds,
-                "thumbnail": thumbnail
-            },
-            params={"user_id": user_id, "user_name": user_name}
-        )
+        async with httpx.AsyncClient() as client:
+            response = requests.post(
+                f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/queue/add",
+                json={
+                    "video_id": video_id,
+                    "title": title,
+                    "channel": channel,
+                    "duration": duration_seconds,
+                    "thumbnail": thumbnail
+                },
+                params={"user_id": user_id, "user_name": user_name}
+            )
         if response.status_code == 200:
             return response.json()
         else:
@@ -133,33 +137,34 @@ def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name: str, 
         return None
 
 
-def change_playback_state_via_api(room_id: str, user_id: str) -> bool | None:
+async def change_playback_state_via_api(room_id: str, user_id: str) -> bool | None:
     """Change playback state via internal API call.
     Return False if playback state is paused, True if playing, None if error.
     """
     try:
-        # Get the current room state to determine the current is_playing status
-        get_response = requests.get(
-            f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}"
-        )
-        if get_response.status_code != 200:
-            print(f"Failed to get room state: {get_response.status_code}")
-            return None
+        async with httpx.AsyncClient() as client:
+            # Get the current room state to determine the current is_playing status
+            get_response = requests.get(
+                f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}"
+            )
+            if get_response.status_code != 200:
+                print(f"Failed to get room state: {get_response.status_code}")
+                return None
 
-        playback_state = get_response.json().get("playback_state", None)
-        currently_playing = playback_state.get("is_playing", None)
-        current_time = playback_state.get("current_time", None)
-        if playback_state is None or currently_playing is None or current_time is None:
-            print("Playback state is missing required fields.")
-            return None
+            playback_state = get_response.json().get("playback_state", None)
+            currently_playing = playback_state.get("is_playing", None)
+            current_time = playback_state.get("current_time", None)
+            if playback_state is None or currently_playing is None or current_time is None:
+                print("Playback state is missing required fields.")
+                return None
 
-        # Send a POST request with the toggled state in the JSON body
-        new_playing_state = not currently_playing
-        response = requests.post(
-            f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/playback",
-            params={"user_id": user_id},
-            json={"is_playing": new_playing_state, "current_time": current_time}
-        )
+            # Send a POST request with the toggled state in the JSON body
+            new_playing_state = not currently_playing
+            response = requests.post(
+                f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/playback",
+                params={"user_id": user_id},
+                json={"is_playing": new_playing_state, "current_time": current_time}
+            )
 
         if response.status_code == 200:
             return response.json().get('is_playing')
@@ -172,14 +177,15 @@ def change_playback_state_via_api(room_id: str, user_id: str) -> bool | None:
         return None
 
 
-def skip_song_via_api(room_id: str, user_id: str) -> (bool, str | None):
+async def skip_song_via_api(room_id: str, user_id: str) -> (bool, str | None):
     """Skip current song via internal API call.
     Return tuple (success, current_song) where success is True if song skipped,"""
     try:
-        response = requests.post(
-            f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/queue/next",
-            params={"user_id": user_id}
-        )
+        async with httpx.AsyncClient() as client:
+            response = requests.post(
+                f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/queue/next",
+                params={"user_id": user_id}
+            )
         if response.status_code == 200:
             return True, response.json().get('current_song', None)
         elif response.status_code == 429:  # Throttle limit exceeded
@@ -404,10 +410,11 @@ async def handle_message(event):
                 room_id = user_rooms[user_id]
                 try:
                     # Call API to leave room
-                    response = requests.delete(
-                        f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/leave",
-                        params={"user_id": user_id}
-                    )
+                    async with httpx.AsyncClient() as client:
+                        response = requests.delete(
+                            f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/leave",
+                            params={"user_id": user_id}
+                        )
 
                     if response.status_code == 200:
                         # Successfully left room
@@ -464,14 +471,15 @@ async def handle_message(event):
 
             user_name = (await line_bot_api.get_profile(user_id)).display_name
             try:
-                response = requests.post(
-                    f"http://localhost:{config['api_endpoints_port']}/api/room/join",
-                    json={
-                        "room_id": room_id,
-                        "user_id": user_id,
-                        "user_name": user_name
-                    }
-                )
+                async with httpx.AsyncClient() as client:
+                    response = requests.post(
+                        f"http://localhost:{config['api_endpoints_port']}/api/room/join",
+                        json={
+                            "room_id": room_id,
+                            "user_id": user_id,
+                            "user_name": user_name
+                        }
+                    )
                 if response.status_code == 200:
                     await link_roomed_rich_menu(user_id, room_id)
                     user_rooms[user_id] = room_id  # Track user's room
@@ -501,7 +509,7 @@ async def handle_message(event):
                     text="您已經在房間中！請先輸入「離開房間」來離開目前的房間")
             else:
                 user_name = (await line_bot_api.get_profile(user_id)).display_name
-                room_data = create_room_via_api(user_id, user_name)
+                room_data = await create_room_via_api(user_id, user_name)
 
                 if room_data:
                     room_id = room_data['room_id']
@@ -537,7 +545,7 @@ async def handle_message(event):
         # User in room and tap play/pause button
         if message_received == "播放/暫停":
             room_id = user_rooms[user_id]
-            is_playing = change_playback_state_via_api(room_id, user_id)
+            is_playing = await change_playback_state_via_api(room_id, user_id)
 
             if is_playing is None:
                 reply_message = TextMessage(text="❌ 無法切換播放狀態，請稍後再試！")
@@ -554,7 +562,7 @@ async def handle_message(event):
         # User in room and tap next song button
         if message_received == "下一首歌曲":
             room_id = user_rooms[user_id]
-            success, current_song = skip_song_via_api(room_id, user_id)
+            success, current_song = await skip_song_via_api(room_id, user_id)
 
             if success:
                 if current_song:
@@ -619,12 +627,13 @@ async def handle_message(event):
                     )
                     return
 
-                result = add_song_via_api(room_id, video_id, user_id, user_name,
-                                          title=audio_info.get('title', 'Unknown'),
-                                          channel=audio_info.get('channel', 'Unknown'),
-                                          duration=audio_info.get('duration', '0'),
-                                          thumbnail=audio_info.get(
-                                              'thumbnail', 'https://i.imgur.com/zSJgfAT.jpeg'))
+                result = await add_song_via_api(room_id, video_id, user_id, user_name,
+                                                title=audio_info.get('title', 'Unknown'),
+                                                channel=audio_info.get('channel', 'Unknown'),
+                                                duration=audio_info.get('duration', '0'),
+                                                thumbnail=audio_info.get(
+                                                    'thumbnail',
+                                                    'https://i.imgur.com/zSJgfAT.jpeg'))
                 if result:
                     reply_message = TextMessage(
                         text=f"✅ 歌曲已新增至播放佇列！\n🎵 {result['song']['title']}")
@@ -727,8 +736,9 @@ async def handle_postback(event):
 
             # Add song asynchronously in the background
             try:
-                result = add_song_via_api(room_id, video_id, user_id, user_name, title=title,
-                                          channel=channel, duration=duration, thumbnail=thumbnail)
+                result = await add_song_via_api(room_id, video_id, user_id, user_name, title=title,
+                                                channel=channel, duration=duration,
+                                                thumbnail=thumbnail)
             except Exception as e:
                 print(f"Error in async song addition: {e}")
 
@@ -760,9 +770,9 @@ async def handle_postback(event):
 
                 # Add song asynchronously in the background
                 try:
-                    result = add_song_via_api(room_id, video_id, user_id, user_name,
-                                              title=title, channel=channel, duration=duration,
-                                              thumbnail=thumbnail)
+                    result = await add_song_via_api(room_id, video_id, user_id, user_name,
+                                                    title=title, channel=channel, duration=duration,
+                                                    thumbnail=thumbnail)
                 except Exception as e:
                     print(f"Error in async song addition: {e}")
             else:
