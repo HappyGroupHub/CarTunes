@@ -6,7 +6,6 @@ Main entry point to run both FastAPI servers simultaneously
 
 import multiprocessing
 import sys
-from pathlib import Path
 
 import uvicorn
 
@@ -26,12 +25,16 @@ def run_main_app():
 
 def run_line_bot():
     """Run the LINE Bot FastAPI app (line_bot.py)"""
+    import asyncio
     from line_bot import cleanup_all_rich_menus, setup_default_rich_menu, app as line_app
     config = utils.read_config()
 
     # Delete all existing rich menus and set up the default one
-    cleanup_all_rich_menus()
-    setup_default_rich_menu()
+    async def setup():
+        await cleanup_all_rich_menus()
+        await setup_default_rich_menu()
+
+    asyncio.run(setup())
 
     uvicorn.run(
         line_app,

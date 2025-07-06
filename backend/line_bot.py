@@ -1,3 +1,4 @@
+import asyncio
 import time
 import urllib
 from typing import Dict, Any
@@ -6,9 +7,11 @@ import requests
 from fastapi import Request, HTTPException, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, TextMessage, \
-    ReplyMessageRequest, FlexMessage, FlexContainer, RichMenuRequest, RichMenuBounds, URIAction, \
-    RichMenuArea, MessageAction, MessagingApiBlob, PostbackAction
+from linebot.v3.messaging import (Configuration, AsyncApiClient, AsyncMessagingApi,
+                                  AsyncMessagingApiBlob, TextMessage, ReplyMessageRequest,
+                                  FlexMessage, FlexContainer,
+                                  RichMenuRequest, RichMenuBounds, URIAction, RichMenuArea,
+                                  MessageAction, PostbackAction)
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
 
 import utilities as utils
@@ -389,10 +392,10 @@ async def callback(request: Request):
 
 @async_handler.add(MessageEvent, message=TextMessageContent)
 async def handle_message(event):
-    with ApiClient(configuration) as api_client:
+    async with AsyncApiClient(configuration) as api_client:
         if event.source.type == 'group':  # Exclude group messages, only process DM messages
             return
-        line_bot_api = MessagingApi(api_client)
+        line_bot_api = AsyncMessagingApi(api_client)
         message_received = event.message.text
         user_id = event.source.user_id
 
@@ -409,32 +412,30 @@ async def handle_message(event):
                     if response.status_code == 200:
                         # Successfully left room
                         del user_rooms[user_id]
-                        unlink_rich_menu_from_user(user_id)
-                        reply_message = TextMessage(
-                            text="成功離開房間！")
+                        await unlink_rich_menu_from_user(user_id)
+                        reply_message = TextMessage(text="成功離開房間！")
                     else:
                         # API call failed
                         reply_message = TextMessage(text="離開房間時發生錯誤，請稍後再試！")
-
                 except Exception as e:
                     print(f"Error leaving room: {e}")
                     # Even if API fails, remove from local tracking
                     del user_rooms[user_id]
-                    unlink_rich_menu_from_user(user_id)
+                    await unlink_rich_menu_from_user(user_id)
                     reply_message = TextMessage(text="成功離開房間！")
             else:
                 reply_message = TextMessage(text="您目前不在任何房間！")
 
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message]))
             return
 
         if message_received == "加入房間":
             reply_message = TextMessage(
                 text="請直接輸入6位數房間代碼 或\n"
                      "轉發朋友的訊息至此即可加入房間！")
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message]))
             return
 
         # Handle join room share message, and room code message if user not in a room
@@ -443,8 +444,8 @@ async def handle_message(event):
             if user_id in user_rooms and "房間代碼：" in message_received:
                 reply_message = TextMessage(
                     text="您已經在房間中！請先輸入「離開房間」來離開目前的房間！")
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token, messages=[reply_message]))
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message]))
                 return
 
             if len(message_received) == 6:
@@ -455,11 +456,13 @@ async def handle_message(event):
                     room_id = message_received.split("房間代碼：")[-1].strip()[:6]
                 except IndexError:
                     reply_message = TextMessage(text="無效的房間代碼格式！")
-                    line_bot_api.reply_message(ReplyMessageRequest(
-                        reply_token=event.reply_token, messages=[reply_message]))
+                    await line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token, messages=[reply_message])
+                    )
                     return
 
-            user_name = line_bot_api.get_profile(user_id).display_name
+            user_name = (await line_bot_api.get_profile(user_id)).display_name
             try:
                 response = requests.post(
                     f"http://localhost:{config['api_endpoints_port']}/api/room/join",
@@ -470,7 +473,7 @@ async def handle_message(event):
                     }
                 )
                 if response.status_code == 200:
-                    link_roomed_rich_menu(user_id, room_id)
+                    await link_roomed_rich_menu(user_id, room_id)
                     user_rooms[user_id] = room_id  # Track user's room
                     reply_message = TextMessage(
                         text=f"房間加入成功！🎉\n" \
@@ -487,8 +490,8 @@ async def handle_message(event):
             except Exception as e:
                 print(f"Error joining room: {e}")
                 reply_message = TextMessage(text="加入房間時發生錯誤，請稍後再試。")
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message]))
             return
 
         if message_received == "創建房間":
@@ -497,12 +500,12 @@ async def handle_message(event):
                 reply_message = TextMessage(
                     text="您已經在房間中！請先輸入「離開房間」來離開目前的房間")
             else:
-                user_name = line_bot_api.get_profile(user_id).display_name
+                user_name = (await line_bot_api.get_profile(user_id)).display_name
                 room_data = create_room_via_api(user_id, user_name)
 
                 if room_data:
                     room_id = room_data['room_id']
-                    link_roomed_rich_menu(user_id, room_id)
+                    await link_roomed_rich_menu(user_id, room_id)
                     user_rooms[user_id] = room_id  # Track user's room
                     reply_message = TextMessage(
                         text=f"房間創建成功！🎉\n" \
@@ -516,8 +519,9 @@ async def handle_message(event):
                 else:
                     reply_message = TextMessage(text="建立房間時發生錯誤，請稍後再試。")
 
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+            )
             return
 
         # After all check, if user is not in a room, ask them to create or join one
@@ -525,8 +529,9 @@ async def handle_message(event):
             reply_message = TextMessage(text="請先加入/創建房間！\n"
                                              "打開下方面版並點擊「創建房間」\n"
                                              "或轉發朋友的訊息至此「加入房間」")
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+            )
             return
 
         # User in room and tap play/pause button
@@ -541,8 +546,9 @@ async def handle_message(event):
             else:
                 reply_message = TextMessage(text="⏸️ 音樂已暫停")
 
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+            )
             return
 
         # User in room and tap next song button
@@ -563,49 +569,54 @@ async def handle_message(event):
                 else:
                     reply_message = TextMessage(text="❌ 無法跳過歌曲，請稍後再試！")
 
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message]))
             return
 
         # Handle URL messages to check if it's a valid YouTube link
         if utils.is_url(message_received):
             if not utils.is_youtube_url(message_received):
                 reply_message = TextMessage(text="❌ 目前僅支援 YouTube 連結點歌！")
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token, messages=[reply_message]))
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                )
                 return
 
             video_id = utils.extract_video_id_from_url(message_received)
             if not video_id:
                 reply_message = TextMessage(text="❌ 無效的 YouTube 連結！\n"
                                                  "請重新確認連結或直接搜尋關鍵字")
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token, messages=[reply_message]))
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                )
                 return
 
             audio_info = get_audio_stream_info(video_id)
             if not audio_info:
                 reply_message = TextMessage(text="❌ 新增歌曲失敗，請檢查連結是否正確！")
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token, messages=[reply_message]))
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                )
                 return
             else:
                 room_id = user_rooms[user_id]
-                user_name = line_bot_api.get_profile(user_id).display_name
+                user_name = (await line_bot_api.get_profile(user_id)).display_name
 
                 if audio_info['duration'] is None:  # It's a live video
                     reply_message = TextMessage(
                         text="❌ 無法新增直播至播放佇列！\n"
                              "請選擇其他一般長度的影片或歌曲")
-                    line_bot_api.reply_message(ReplyMessageRequest(
-                        reply_token=event.reply_token, messages=[reply_message]))
+                    await line_bot_api.reply_message(
+                        ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                    )
                     return
                 elif audio_info['duration'] > config['song_length_limit']:
                     reply_message = TextMessage(
                         text=f"❌ 歌曲長度超過 {song_len_min} 分鐘限制\n"
                              f"請選擇其他歌曲！")
-                    line_bot_api.reply_message(ReplyMessageRequest(
-                        reply_token=event.reply_token, messages=[reply_message]))
+                    await line_bot_api.reply_message(
+                        ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                    )
                     return
 
                 result = add_song_via_api(room_id, video_id, user_id, user_name,
@@ -620,13 +631,15 @@ async def handle_message(event):
                 else:
                     reply_message = TextMessage(text="❌ 新增歌曲失敗，請檢查連結是否正確！")
 
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token, messages=[reply_message]))
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                )
         else:  # Keyword search
             if len(message_received) > 50:
                 reply_message = TextMessage(text="搜尋關鍵字過長，請重新輸入！")
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token, messages=[reply_message]))
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                )
                 return
 
             try:
@@ -635,23 +648,30 @@ async def handle_message(event):
                     # Create and send carousel message
                     carousel_message = create_search_results_carousel(search_results,
                                                                       message_received)
-                    line_bot_api.reply_message(ReplyMessageRequest(
-                        reply_token=event.reply_token, messages=[carousel_message]))
+                    await line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token, messages=[carousel_message]
+                        )
+                    )
                 else:
                     reply_message = TextMessage(text="找不到相關歌曲，請嘗試其他關鍵字！")
-                    line_bot_api.reply_message(ReplyMessageRequest(
-                        reply_token=event.reply_token, messages=[reply_message]))
+                    await line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token, messages=[reply_message]
+                        )
+                    )
             except Exception as e:
                 print(f"Search error: {e}")
                 reply_message = TextMessage(text="搜尋時發生錯誤，請稍後再試！")
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token, messages=[reply_message]))
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                )
 
 
 @async_handler.add(PostbackEvent)
 async def handle_postback(event):
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
+    async with AsyncApiClient(configuration) as api_client:
+        line_bot_api = AsyncMessagingApi(api_client)
         postback_data = event.postback.data
         user_id = event.source.user_id
 
@@ -659,19 +679,21 @@ async def handle_postback(event):
             reply_message = TextMessage(
                 text="請直接輸入6位數房間代碼 或\n"
                      "轉發朋友的訊息至此即可加入房間！")
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+            )
             return
 
         # Check if user is in a room
         if user_id not in user_rooms:
             reply_message = TextMessage(text="請先創建房間才能新增歌曲！")
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+            )
             return
 
         room_id = user_rooms[user_id]
-        user_name = line_bot_api.get_profile(user_id).display_name
+        user_name = (await line_bot_api.get_profile(user_id)).display_name
 
         if postback_data.startswith("add_song:"):
             # Extract video ID and add song
@@ -692,14 +714,16 @@ async def handle_postback(event):
             if not utils.check_video_duration(duration):
                 reply_message = TextMessage(
                     text=f"❌ 歌曲長度超過 {song_len_min} 分鐘限制\n請選擇其他歌曲！")
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token, messages=[reply_message]))
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                )
                 return
 
             # Immediate success response
             reply_message = TextMessage(text=f"✅ 歌曲已新增至播放佇列！\n🎵 {title}")
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token, messages=[reply_message]))
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+            )
 
             # Add song asynchronously in the background
             try:
@@ -723,14 +747,16 @@ async def handle_postback(event):
                 if not utils.check_video_duration(duration):
                     reply_message = TextMessage(
                         text=f"❌ 歌曲長度超過 {song_len_min} 分鐘限制\n請選擇其他歌曲！")
-                    line_bot_api.reply_message(ReplyMessageRequest(
-                        reply_token=event.reply_token, messages=[reply_message]))
+                    await line_bot_api.reply_message(
+                        ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                    )
                     return
 
                 # Immediate success response
                 reply_message = TextMessage(text=f"✅ 歌曲已新增至播放佇列！\n🎵 {title}")
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token, messages=[reply_message]))
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                )
 
                 # Add song asynchronously in the background
                 try:
@@ -741,8 +767,9 @@ async def handle_postback(event):
                     print(f"Error in async song addition: {e}")
             else:
                 reply_message = TextMessage(text="❌ 歌曲資料已過期，請重新搜尋。")
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token, messages=[reply_message]))
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                )
 
         elif postback_data.startswith("next_page:"):
             # Handle pagination
@@ -756,28 +783,35 @@ async def handle_postback(event):
                     if search_results:
                         carousel_message = create_search_results_carousel(search_results,
                                                                           user_input, page)
-                        line_bot_api.reply_message(ReplyMessageRequest(
-                            reply_token=event.reply_token, messages=[carousel_message]))
+                        await line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token, messages=[carousel_message]
+                            )
+                        )
                     else:
                         reply_message = TextMessage(text="找不到更多結果囉！")
-                        line_bot_api.reply_message(ReplyMessageRequest(
-                            reply_token=event.reply_token, messages=[reply_message]))
+                        await line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token, messages=[reply_message]
+                            )
+                        )
                 except Exception as e:
                     print(f"Pagination error: {e}")
                     reply_message = TextMessage(text="載入時發生錯誤！")
-                    line_bot_api.reply_message(ReplyMessageRequest(
-                        reply_token=event.reply_token, messages=[reply_message]))
+                    await line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token, messages=[reply_message]
+                        )
+                    )
 
 
 # ===== Rich Menu Manager =====
-
-
-def setup_default_rich_menu():
+async def setup_default_rich_menu():
     """Create and set up the default rich menu for the bot.
     This rich menu will help users to create or join rooms."""
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        line_bot_blob_api = MessagingApiBlob(api_client)
+    async with AsyncApiClient(configuration) as api_client:
+        line_bot_api = AsyncMessagingApi(api_client)
+        line_bot_blob_api = AsyncMessagingApiBlob(api_client)
         rich_menu = RichMenuRequest(
             size=RichMenuBounds(width=2500, height=843),
             selected=True,
@@ -801,21 +835,22 @@ def setup_default_rich_menu():
                 )
             ]
         )
-        rich_menu_id = line_bot_api.create_rich_menu(rich_menu_request=rich_menu).rich_menu_id
+        rich_menu_id = (
+            await line_bot_api.create_rich_menu(rich_menu_request=rich_menu)).rich_menu_id
         with open('./images/default_richmenu.png', 'rb') as image:
-            line_bot_blob_api.set_rich_menu_image(
+            await line_bot_blob_api.set_rich_menu_image(
                 rich_menu_id=rich_menu_id,
                 body=bytearray(image.read()),
                 _headers={'Content-Type': 'image/png'}
             )
-        line_bot_api.set_default_rich_menu(rich_menu_id)
+        await line_bot_api.set_default_rich_menu(rich_menu_id)
 
 
-def link_roomed_rich_menu(user_id: str, room_id: str):
+async def link_roomed_rich_menu(user_id: str, room_id: str):
     """Link user with a rich menu for roomed users."""
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        line_bot_blob_api = MessagingApiBlob(api_client)
+    async with AsyncApiClient(configuration) as api_client:
+        line_bot_api = AsyncMessagingApi(api_client)
+        line_bot_blob_api = AsyncMessagingApiBlob(api_client)
 
         room_url = f"{config['frontend_url']}/room/{room_id}?userId={user_id}"
 
@@ -847,39 +882,40 @@ def link_roomed_rich_menu(user_id: str, room_id: str):
                 )
             ]
         )
-        rich_menu_id = line_bot_api.create_rich_menu(rich_menu_request=rich_menu).rich_menu_id
+        rich_menu_id = (
+            await line_bot_api.create_rich_menu(rich_menu_request=rich_menu)).rich_menu_id
         with open('images/roomed_richmenu.png', 'rb') as image:
-            line_bot_blob_api.set_rich_menu_image(
+            await line_bot_blob_api.set_rich_menu_image(
                 rich_menu_id=rich_menu_id,
                 body=bytearray(image.read()),
                 _headers={'Content-Type': 'image/png'}
             )
-        line_bot_api.link_rich_menu_id_to_user(user_id, rich_menu_id)
+        await line_bot_api.link_rich_menu_id_to_user(user_id, rich_menu_id)
 
 
-def unlink_rich_menu_from_user(user_id: str):
+async def unlink_rich_menu_from_user(user_id: str):
     """Remove rich menu from user when they leave room."""
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        line_bot_api.unlink_rich_menu_id_from_user(user_id)
+    async with AsyncApiClient(configuration) as api_client:
+        line_bot_api = AsyncMessagingApi(api_client)
+        await line_bot_api.unlink_rich_menu_id_from_user(user_id)
 
 
-def cleanup_all_rich_menus():
+async def cleanup_all_rich_menus():
     """Clean up all existing rich menus and user links before setting up new default menu.
     This function is useful since users who had individual rich menus (roomed rich menu) linked from
     the previous session will still have those menus attached even after the bot restarts.
     """
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
+    async with AsyncApiClient(configuration) as api_client:
+        line_bot_api = AsyncMessagingApi(api_client)
 
         try:
             # Get all existing rich menus
-            rich_menus = line_bot_api.get_rich_menu_list()
+            rich_menus = await line_bot_api.get_rich_menu_list()
 
             # Delete all existing rich menus (this will also unlink them from users)
             for rich_menu in rich_menus.richmenus:
                 try:
-                    line_bot_api.delete_rich_menu(rich_menu.rich_menu_id)
+                    await line_bot_api.delete_rich_menu(rich_menu.rich_menu_id)
                     print(f"Deleted rich menu: {rich_menu.rich_menu_id}")
                 except Exception as e:
                     print(f"Error deleting rich menu {rich_menu.rich_menu_id}: {e}")
@@ -888,9 +924,9 @@ def cleanup_all_rich_menus():
             print(f"Error during rich menu cleanup: {e}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import uvicorn
 
-    cleanup_all_rich_menus()
-    setup_default_rich_menu()
-    uvicorn.run(app, host="0.0.0.0", port=config['line_webhook_port'])
+    asyncio.run(cleanup_all_rich_menus())
+    asyncio.run(setup_default_rich_menu())
+    uvicorn.run(app, host="0.0.0.0", port=config["line_webhook_port"])
