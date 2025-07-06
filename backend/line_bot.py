@@ -130,6 +130,65 @@ def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name: str, 
         return None
 
 
+def change_playback_state_via_api(room_id: str, user_id: str) -> bool | None:
+    """Change playback state via internal API call.
+    Return False if playback state is paused, True if playing, None if error.
+    """
+    try:
+        # Get the current room state to determine the current is_playing status
+        get_response = requests.get(
+            f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}"
+        )
+        if get_response.status_code != 200:
+            print(f"Failed to get room state: {get_response.status_code}")
+            return None
+
+        playback_state = get_response.json().get("playback_state", None)
+        currently_playing = playback_state.get("is_playing", None)
+        current_time = playback_state.get("current_time", None)
+        if playback_state is None or currently_playing is None or current_time is None:
+            print("Playback state is missing required fields.")
+            return None
+
+        # Send a POST request with the toggled state in the JSON body
+        new_playing_state = not currently_playing
+        response = requests.post(
+            f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/playback",
+            params={"user_id": user_id},
+            json={"is_playing": new_playing_state, "current_time": current_time}
+        )
+
+        if response.status_code == 200:
+            return response.json().get('is_playing')
+        else:
+            print(f"Failed to change playback state: {response.status_code} - {response.text}")
+            return None
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error changing playback state: {e}")
+        return None
+
+
+def skip_song_via_api(room_id: str, user_id: str) -> (bool, str | None):
+    """Skip current song via internal API call.
+    Return tuple (success, current_song) where success is True if song skipped,"""
+    try:
+        response = requests.post(
+            f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/queue/next",
+            params={"user_id": user_id}
+        )
+        if response.status_code == 200:
+            return True, response.json().get('current_song', None)
+        elif response.status_code == 429:  # Throttle limit exceeded
+            return False, "Throttle limit exceeded"
+        else:
+            print(f"Failed to skip song: {response.status_code}")
+            return False, None
+    except Exception as e:
+        print(f"Error skipping song: {e}")
+        return False, None
+
+
 @app.delete("/api/room/leave")
 def leave_room(request: Request, user_id: str):
     """Leave room endpoint to remove user_rooms locally."""
@@ -470,6 +529,44 @@ async def handle_message(event):
                 reply_token=event.reply_token, messages=[reply_message]))
             return
 
+        # User in room and tap play/pause button
+        if message_received == "播放/暫停":
+            room_id = user_rooms[user_id]
+            is_playing = change_playback_state_via_api(room_id, user_id)
+
+            if is_playing is None:
+                reply_message = TextMessage(text="❌ 無法切換播放狀態，請稍後再試！")
+            elif is_playing:
+                reply_message = TextMessage(text="▶️ 音樂已開始播放")
+            else:
+                reply_message = TextMessage(text="⏸️ 音樂已暫停")
+
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[reply_message]))
+            return
+
+        # User in room and tap next song button
+        if message_received == "下一首歌曲":
+            room_id = user_rooms[user_id]
+            success, current_song = skip_song_via_api(room_id, user_id)
+
+            if success:
+                if current_song:
+                    reply_message = TextMessage(
+                        text=f"✅ 已切至下一首歌！\n🎵 {current_song['title']}")
+                else:
+                    reply_message = TextMessage(text="✅ 已切至下一首歌！")
+            else:
+                if current_song == "Throttle limit exceeded":
+                    reply_message = TextMessage(
+                        text="✅ 其他使用者已協助切歌！")
+                else:
+                    reply_message = TextMessage(text="❌ 無法跳過歌曲，請稍後再試！")
+
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[reply_message]))
+            return
+
         # Handle URL messages to check if it's a valid YouTube link
         if utils.is_url(message_received):
             if not utils.is_youtube_url(message_received):
@@ -728,14 +825,24 @@ def link_roomed_rich_menu(user_id: str, room_id: str):
             name="CarTunes Rich Menu",
             chat_bar_text="音樂播放器",
             areas=[
-                # Main area - opens website
+                # Open room website
                 RichMenuArea(
-                    bounds=RichMenuBounds(x=0, y=0, width=1600, height=843),
+                    bounds=RichMenuBounds(x=0, y=0, width=1650, height=600),
                     action=URIAction(uri=room_url)
+                ),
+                # Play/Pause button
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=0, y=600, width=825, height=243),
+                    action=MessageAction(text="播放/暫停")
+                ),
+                # Next song button
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=825, y=600, width=825, height=243),
+                    action=MessageAction(text="下一首歌曲")
                 ),
                 # Leave room button - right side
                 RichMenuArea(
-                    bounds=RichMenuBounds(x=1600, y=0, width=900, height=843),
+                    bounds=RichMenuBounds(x=1650, y=0, width=900, height=843),
                     action=MessageAction(text="離開房間")
                 )
             ]
