@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, TextMessage, \
     ReplyMessageRequest, FlexMessage, FlexContainer, RichMenuRequest, RichMenuBounds, URIAction, \
-    RichMenuArea, MessageAction, MessagingApiBlob
+    RichMenuArea, MessageAction, MessagingApiBlob, PostbackAction
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
 
 import utilities as utils
@@ -558,6 +558,14 @@ async def handle_postback(event):
         postback_data = event.postback.data
         user_id = event.source.user_id
 
+        if postback_data == "join_room":
+            reply_message = TextMessage(
+                text="請直接輸入6位數房間代碼 或\n"
+                     "轉發朋友的訊息至此即可加入房間！")
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[reply_message]))
+            return
+
         # Check if user is in a room
         if user_id not in user_rooms:
             reply_message = TextMessage(text="請先創建房間才能新增歌曲！")
@@ -687,7 +695,12 @@ def setup_default_rich_menu():
                 # Join room area (right side)
                 RichMenuArea(
                     bounds=RichMenuBounds(x=1250, y=0, width=1250, height=843),
-                    action=MessageAction(text="加入房間")
+                    action=PostbackAction(
+                        label="加入房間",
+                        data="join_room",
+                        displayText="加入房間",
+                        input_option="openKeyboard"
+                    )
                 )
             ]
         )
