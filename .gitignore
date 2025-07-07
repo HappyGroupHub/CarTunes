@@ -1,1 +1,5 @@
+# Jetbrains
 .idea
+
+# General
+__pycache__

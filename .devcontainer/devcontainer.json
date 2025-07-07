@@ -1,0 +1,39 @@
+{
+	"name": "Ubuntu",
+	"image": "mcr.microsoft.com/devcontainers/base:jammy",
+	"runArgs": [
+        "--network=host",
+        "--name=cartunes-dev-container"
+    ],
+	"features": {
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+			"moby": true,
+			"installDockerBuildx": true,
+			"version": "26.1.4",
+			"dockerDashComposeVersion": "v2"
+		},
+		"ghcr.io/devcontainers/features/git:1": {
+			"ppa": true,
+			"version": "lts"
+		},
+        "ghcr.io/devcontainers/features/node:1": {
+			"nodeGypDependencies": true,
+			"version": "18.19.0"
+		},
+        "ghcr.io/devcontainers/features/python:1": {
+            "version": "3.13"
+        }       
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+                "ms-vscode-remote.vscode-remote-extensionpack",
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                "eamodio.gitlens",
+                "streetsidesoftware.code-spell-checker"
+            ]
+		}
+	},	
+	"postCreateCommand": "chmod +x .devcontainer/setup.sh && ./.devcontainer/setup.sh"
+}
