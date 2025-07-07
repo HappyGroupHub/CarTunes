@@ -100,6 +100,11 @@ action_throttle_seconds: 1
 bring_to_top_throttle:
   max_requests: 2
   window_seconds: 5
+  
+# LINE message throttling settings, used to prevent one user from spamming messages.
+# Specifically designed to solve rich menu buttons spam. (But still applied to all messages)
+# Default is 0.8 seconds.
+line_message_throttle_seconds: 0.8
 """
                    )
         file.close()
@@ -145,7 +150,8 @@ def read_config():
                 'bring_to_top_throttle': {
                     'max_requests': data['bring_to_top_throttle']['max_requests'],
                     'window_seconds': data['bring_to_top_throttle']['window_seconds']
-                }
+                },
+                'line_message_throttle_seconds': data['line_message_throttle_seconds']
             }
             file.close()
 

@@ -47,6 +47,10 @@ postback_cache: Dict[str, Dict[str, Any]] = {}
 # Song length limit in minutes
 song_len_min = config['song_length_limit'] // 60
 
+# LINE messages throttle settings - per user
+line_message_throttle = config['line_message_throttle_seconds']
+user_messages: Dict[str, float] = {}  # key: user_id, value: last message timestamp
+
 
 # ===== Song Keyword Search Cache =====
 
@@ -458,6 +462,18 @@ async def handle_message(event):
         line_bot_api = AsyncMessagingApi(api_client)
         message_received = event.message.text
         user_id = event.source.user_id
+
+        # LINE message throttling - per user
+        current_time = time.time()
+        if user_id in user_messages:
+            if current_time - user_messages[user_id] < line_message_throttle:
+                reply_message = TextMessage(text="冷靜！你速度太快了🔥")
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                )
+                return
+        # Update last message time
+        user_messages[user_id] = current_time
 
         if message_received == "離開房間":
             if user_id in user_rooms:
