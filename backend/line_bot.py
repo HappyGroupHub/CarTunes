@@ -197,6 +197,27 @@ async def skip_song_via_api(room_id: str, user_id: str) -> (bool, str | None):
         return False, None
 
 
+async def join_room(user_id: str, room_id: str, user_name: str) -> (bool, str | None):
+    """Join room endpoint to add user_rooms locally."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://localhost:{config['api_endpoints_port']}/api/room/join",
+                json={"room_id": room_id, "user_id": user_id, "user_name": user_name}
+            )
+
+        if response.status_code == 200:
+            # Successfully joined room
+            await link_roomed_rich_menu(user_id, room_id)
+            return True, None
+        else:
+            # API call failed
+            return False, "No such room"
+    except Exception as e:
+        print(f"Error joining room: {e}")
+        return False, None
+
+
 async def leave_room(user_id: str, room_id: str) -> bool:
     """Leave room endpoint to remove user_rooms locally."""
     # We don't check if user_id is in user_rooms here, it should be handled by the caller
@@ -467,33 +488,20 @@ async def handle_message(event):
                     return
 
             user_name = (await line_bot_api.get_profile(user_id)).display_name
-            try:
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(
-                        f"http://localhost:{config['api_endpoints_port']}/api/room/join",
-                        json={
-                            "room_id": room_id,
-                            "user_id": user_id,
-                            "user_name": user_name
-                        }
-                    )
-                if response.status_code == 200:
-                    await link_roomed_rich_menu(user_id, room_id)
-                    user_rooms[user_id] = room_id  # Track user's room
-                    reply_message = TextMessage(
-                        text=f"房間加入成功！🎉\n" \
-                             f"現在您可以在聊天室搜尋歌曲並新增\n" \
-                             f"或直接貼上 YouTube 連結點歌\n\n" \
-                             f"🎵 點擊下方區域進入網頁播放器\n"
-                             f"隨時插歌或是刪除不想要的歌曲～\n\n" \
-                             f"房間代碼：{room_id}")
-                else:
-                    reply_message = TextMessage(
-                        text="❌ 錯誤的房間代碼！\n"
-                             "請輸入正確的房間代碼，或直接轉發朋友的訊息至此即可加入房間～")
-
-            except Exception as e:
-                print(f"Error joining room: {e}")
+            success, error_message = await join_room(user_id, room_id, user_name)
+            if success:
+                reply_message = TextMessage(
+                    text=f"房間加入成功！🎉\n" \
+                         f"現在您可以在聊天室搜尋歌曲並新增\n" \
+                         f"或直接貼上 YouTube 連結點歌\n\n" \
+                         f"🎵 點擊下方區域進入網頁播放器\n"
+                         f"隨時插歌或是刪除不想要的歌曲～\n\n" \
+                         f"房間代碼：{room_id}")
+            elif error_message == "No such room":
+                reply_message = TextMessage(
+                    text="❌ 錯誤的房間代碼！\n"
+                         "請輸入正確的房間代碼，或直接轉發朋友的訊息至此即可加入房間～")
+            else:
                 reply_message = TextMessage(text="加入房間時發生錯誤，請稍後再試。")
             await line_bot_api.reply_message(
                 ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message]))
