@@ -198,7 +198,14 @@ async def skip_song_via_api(room_id: str, user_id: str) -> (bool, str | None):
 
 
 async def join_room(user_id: str, room_id: str, user_name: str) -> (bool, str | None):
-    """Join room endpoint to add user_rooms locally."""
+    """Join room endpoint to add user_rooms locally.
+
+    You should check if user_id is already in user_rooms before calling this function.
+    This function would link user rich menu if success.
+    Returns a tuple (success, error_message) where success is True if joined, False if failed.
+    If error_message is "No such room", it means the room does not exist.
+    Else, error_message would be just None.
+    """
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -219,8 +226,12 @@ async def join_room(user_id: str, room_id: str, user_name: str) -> (bool, str | 
 
 
 async def leave_room(user_id: str, room_id: str) -> bool:
-    """Leave room endpoint to remove user_rooms locally."""
-    # We don't check if user_id is in user_rooms here, it should be handled by the caller
+    """Leave room endpoint to remove user_rooms locally.
+
+    You should check if user_id is in user_rooms before calling this function.
+    This function would unlink user rich menu if success.
+    Returns True if successfully left the room, False if failed.
+    """
     try:
         async with httpx.AsyncClient() as client:
             response = await client.delete(
