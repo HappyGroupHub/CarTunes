@@ -102,6 +102,7 @@ async def create_room_via_api(user_id: str, user_name: str) -> (bool, str | None
     Returns a tuple (success, room_id) where success is True if room created, False if failed.
     If failed, room_id would be None.
     """
+    user_rooms[user_id] = "TEMP"  # Add temporary room entry to prevent spam
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -111,13 +112,15 @@ async def create_room_via_api(user_id: str, user_name: str) -> (bool, str | None
         if response.status_code == 200:
             room_id = response.json()['room_id']
             await link_roomed_rich_menu(user_id, room_id)
-            user_rooms[user_id] = room_id  # Track user's room
+            user_rooms[user_id] = room_id  # Update actual room ID
             return True, room_id
         else:
             print(f"Failed to create room: {response.status_code}")
+            del user_rooms[user_id]  # Remove temp user_rooms entry
             return False, None
     except Exception as e:
         print(f"Error creating room: {e}")
+        del user_rooms[user_id]  # Remove temp user_rooms entry
         return False, None
 
 
@@ -219,22 +222,25 @@ async def join_room(user_id: str, room_id: str, user_name: str) -> (bool, str | 
     If error_message is "No such room", it means the room does not exist.
     Else, error_message would be just None.
     """
+    user_rooms[user_id] = "TEMP"  # Add temporary room entry to prevent spam
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"http://localhost:{config['api_endpoints_port']}/api/room/join",
                 json={"room_id": room_id, "user_id": user_id, "user_name": user_name}
             )
-
         if response.status_code == 200:
             # Successfully joined room
             await link_roomed_rich_menu(user_id, room_id)
+            user_rooms[user_id] = room_id  # Update actual room ID
             return True, None
         else:
             # API call failed
+            del user_rooms[user_id]  # Remove temp user_rooms entry
             return False, "No such room"
     except Exception as e:
         print(f"Error joining room: {e}")
+        del user_rooms[user_id]  # Remove temp user_rooms entry
         return False, None
 
 
