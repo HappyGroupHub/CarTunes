@@ -197,16 +197,30 @@ async def skip_song_via_api(room_id: str, user_id: str) -> (bool, str | None):
         return False, None
 
 
-@app.delete("/api/room/leave")
-def leave_room(request: Request, user_id: str):
+async def leave_room(user_id: str, room_id: str) -> bool:
     """Leave room endpoint to remove user_rooms locally."""
-    # Only allow requests from localhost
-    client_ip = request.client.host
-    if client_ip != "127.0.0.1":
-        raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
+    # We don't check if user_id is in user_rooms here, it should be handled by the caller
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/leave",
+                params={"user_id": user_id}
+            )
 
-    if user_id in user_rooms:
+        if response.status_code == 200:
+            # Successfully left room
+            del user_rooms[user_id]
+            await unlink_rich_menu_from_user(user_id)
+            return True
+        else:
+            # API call failed
+            return False
+    except Exception as e:
+        print(f"Error leaving room: {e}")
+        # Even if API fails, remove from local tracking
         del user_rooms[user_id]
+        await unlink_rich_menu_from_user(user_id)
+        return False
 
 
 # ===== Handel Message Event =====
@@ -407,28 +421,12 @@ async def handle_message(event):
         if message_received == "離開房間":
             if user_id in user_rooms:
                 room_id = user_rooms[user_id]
-                try:
-                    # Call API to leave room
-                    async with httpx.AsyncClient() as client:
-                        response = await client.delete(
-                            f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/leave",
-                            params={"user_id": user_id}
-                        )
 
-                    if response.status_code == 200:
-                        # Successfully left room
-                        del user_rooms[user_id]
-                        await unlink_rich_menu_from_user(user_id)
-                        reply_message = TextMessage(text="成功離開房間！")
-                    else:
-                        # API call failed
-                        reply_message = TextMessage(text="離開房間時發生錯誤，請稍後再試！")
-                except Exception as e:
-                    print(f"Error leaving room: {e}")
-                    # Even if API fails, remove from local tracking
-                    del user_rooms[user_id]
-                    await unlink_rich_menu_from_user(user_id)
+                success = await leave_room(user_id, room_id)
+                if success:
                     reply_message = TextMessage(text="成功離開房間！")
+                else:
+                    reply_message = TextMessage(text="離開房間時發生錯誤，請稍後再試！")
             else:
                 reply_message = TextMessage(text="您目前不在任何房間！")
 
