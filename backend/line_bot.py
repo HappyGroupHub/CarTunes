@@ -90,8 +90,14 @@ def estimate_postback_length(video_id: str, title: str, channel: str, duration: 
 
 # ===== Call/Receive Internal Endpoints =====
 
-async def create_room_via_api(user_id: str, user_name: str):
-    """Create a room via internal API call."""
+async def create_room_via_api(user_id: str, user_name: str) -> (bool, str | None):
+    """Create a room via internal API call.
+
+    You should check if user_id is already in user_rooms before calling this function.
+    This function would link user rich menu if success.
+    Returns a tuple (success, room_id) where success is True if room created, False if failed.
+    If failed, room_id would be None.
+    """
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -99,13 +105,16 @@ async def create_room_via_api(user_id: str, user_name: str):
                 params={"user_id": user_id, "user_name": user_name}
             )
         if response.status_code == 200:
-            return response.json()
+            room_id = response.json()['room_id']
+            await link_roomed_rich_menu(user_id, room_id)
+            user_rooms[user_id] = room_id  # Track user's room
+            return True, room_id
         else:
             print(f"Failed to create room: {response.status_code}")
-            return None
+            return False, None
     except Exception as e:
         print(f"Error creating room: {e}")
-        return None
+        return False, None
 
 
 async def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name: str,
@@ -525,12 +534,9 @@ async def handle_message(event):
                     text="您已經在房間中！請先輸入「離開房間」來離開目前的房間")
             else:
                 user_name = (await line_bot_api.get_profile(user_id)).display_name
-                room_data = await create_room_via_api(user_id, user_name)
+                success, room_id = await create_room_via_api(user_id, user_name)
 
-                if room_data:
-                    room_id = room_data['room_id']
-                    await link_roomed_rich_menu(user_id, room_id)
-                    user_rooms[user_id] = room_id  # Track user's room
+                if success:
                     reply_message = TextMessage(
                         text=f"房間創建成功！🎉\n" \
                              f"現在您可以直接在此聊天室搜尋和新增歌曲了！點擊下方的區域進入網頁播放器，隨時插歌" \
