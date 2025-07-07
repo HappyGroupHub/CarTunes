@@ -4,7 +4,6 @@ import urllib
 from typing import Dict, Any
 
 import httpx
-import requests
 from fastapi import Request, HTTPException, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from linebot.v3.exceptions import InvalidSignatureError
@@ -95,7 +94,7 @@ async def create_room_via_api(user_id: str, user_name: str):
     """Create a room via internal API call."""
     try:
         async with httpx.AsyncClient() as client:
-            response = requests.post(
+            response = await client.post(
                 f"http://localhost:{config['api_endpoints_port']}/api/room/create",
                 params={"user_id": user_id, "user_name": user_name}
             )
@@ -116,7 +115,7 @@ async def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name:
     try:
         duration_seconds = utils.convert_duration_to_seconds(duration) if duration else None
         async with httpx.AsyncClient() as client:
-            response = requests.post(
+            response = await client.post(
                 f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/queue/add",
                 json={
                     "video_id": video_id,
@@ -144,7 +143,7 @@ async def change_playback_state_via_api(room_id: str, user_id: str) -> bool | No
     try:
         async with httpx.AsyncClient() as client:
             # Get the current room state to determine the current is_playing status
-            get_response = requests.get(
+            get_response = await client.get(
                 f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}"
             )
             if get_response.status_code != 200:
@@ -160,7 +159,7 @@ async def change_playback_state_via_api(room_id: str, user_id: str) -> bool | No
 
             # Send a POST request with the toggled state in the JSON body
             new_playing_state = not currently_playing
-            response = requests.post(
+            response = await client.post(
                 f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/playback",
                 params={"user_id": user_id},
                 json={"is_playing": new_playing_state, "current_time": current_time}
@@ -172,7 +171,7 @@ async def change_playback_state_via_api(room_id: str, user_id: str) -> bool | No
             print(f"Failed to change playback state: {response.status_code} - {response.text}")
             return None
 
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         print(f"Error changing playback state: {e}")
         return None
 
@@ -182,7 +181,7 @@ async def skip_song_via_api(room_id: str, user_id: str) -> (bool, str | None):
     Return tuple (success, current_song) where success is True if song skipped,"""
     try:
         async with httpx.AsyncClient() as client:
-            response = requests.post(
+            response = await client.post(
                 f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/queue/next",
                 params={"user_id": user_id}
             )
@@ -411,7 +410,7 @@ async def handle_message(event):
                 try:
                     # Call API to leave room
                     async with httpx.AsyncClient() as client:
-                        response = requests.delete(
+                        response = await client.delete(
                             f"http://localhost:{config['api_endpoints_port']}/api/room/{room_id}/leave",
                             params={"user_id": user_id}
                         )
@@ -472,7 +471,7 @@ async def handle_message(event):
             user_name = (await line_bot_api.get_profile(user_id)).display_name
             try:
                 async with httpx.AsyncClient() as client:
-                    response = requests.post(
+                    response = await client.post(
                         f"http://localhost:{config['api_endpoints_port']}/api/room/join",
                         json={
                             "room_id": room_id,
