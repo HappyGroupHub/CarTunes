@@ -12,6 +12,7 @@ interface UseWebSocketOptions {
     enabled?: boolean
     reconnectInterval?: number
     maxReconnectAttempts?: number
+    silentAudioRef?: React.RefObject<HTMLAudioElement>
 }
 
 export function useWebSocket({
@@ -24,6 +25,7 @@ export function useWebSocket({
                                  enabled = true,
                                  reconnectInterval = 1000,
                                  maxReconnectAttempts = 5,
+                                 silentAudioRef,
                              }: UseWebSocketOptions) {
     const [isConnected, setIsConnected] = useState(false)
     const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "disconnected" | "error">(
@@ -35,6 +37,24 @@ export function useWebSocket({
     const reconnectAttemptsRef = useRef(0)
     const isManuallyClosedRef = useRef(false)
     const connectionRetryDelayRef = useRef(reconnectInterval)
+
+    const playSilentAudio = useCallback(() => {
+        // This is specifically for prevent IOS mobile cleaning up the connection
+        if (silentAudioRef?.current && 'mediaSession' in navigator) {
+            silentAudioRef.current.loop = true;
+            silentAudioRef.current.play().catch(e => console.error("Silent audio play failed:", e));
+            console.log("Silent audio playing");
+        }
+    }, [silentAudioRef]);
+
+    const stopSilentAudio = useCallback(() => {
+        if (silentAudioRef?.current && 'mediaSession' in navigator) {
+            silentAudioRef.current.pause();
+            silentAudioRef.current.currentTime = 0;
+            console.log("Silent audio stopped");
+        }
+    }, [silentAudioRef]);
+
 
     const connect = useCallback(() => {
         if (!enabled || wsRef.current?.readyState === WebSocket.OPEN) {
@@ -66,11 +86,14 @@ export function useWebSocket({
             wsRef.current.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data)
-                    // Handle ping from server
+                    // Handle ping from server to play silent audio
                     if (data.type === 'ping') {
-                        // Respond with a pong to keep the connection alive, for paused room
-                        sendMessage({ type: 'pong' });
+                        playSilentAudio();
+                        sendMessage({type: 'pong'});
                         return;
+                    }
+                    if (data.type === 'playback_started') {
+                        stopSilentAudio();
                     }
                     onMessage?.(data)
                 } catch (error) {
@@ -83,6 +106,7 @@ export function useWebSocket({
                 setIsConnected(false)
                 setConnectionStatus("disconnected")
                 onDisconnect?.()
+                stopSilentAudio();
 
                 // Only attempt reconnection if not manually closed and enabled
                 if (!isManuallyClosedRef.current && enabled) {
@@ -109,6 +133,7 @@ export function useWebSocket({
                 console.error("WebSocket error:", error)
                 setConnectionStatus("error")
                 onError?.(error)
+                stopSilentAudio();
             }
         } catch (error) {
             setConnectionStatus("error")
@@ -124,11 +149,14 @@ export function useWebSocket({
         onConnectionFailed,
         reconnectInterval,
         maxReconnectAttempts,
+        playSilentAudio,
+        stopSilentAudio
     ])
 
     const disconnect = useCallback(() => {
         console.log("Manually disconnecting WebSocket")
         isManuallyClosedRef.current = true
+        stopSilentAudio();
 
         if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current)
@@ -144,7 +172,7 @@ export function useWebSocket({
         setConnectionStatus("disconnected")
         reconnectAttemptsRef.current = 0
         connectionRetryDelayRef.current = reconnectInterval
-    }, [reconnectInterval])
+    }, [reconnectInterval, stopSilentAudio])
 
     const sendMessage = useCallback((message: any) => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {

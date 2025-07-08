@@ -98,6 +98,7 @@ export default function RoomPage() {
     const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
     const audioRef = useRef<HTMLAudioElement>(null)
+    const silentAudioRef = useRef<HTMLAudioElement>(null)
     const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
     const audioLoaderCleanupRef = useRef<(() => void) | null>(null)
 
@@ -888,6 +889,7 @@ export default function RoomPage() {
         enabled: !isLoading && room !== null,
         reconnectInterval: 2000,
         maxReconnectAttempts: 3,
+        silentAudioRef,
     })
 
     useEffect(() => {
@@ -1350,6 +1352,8 @@ export default function RoomPage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600">
             <audio ref={audioRef} preload="metadata" crossOrigin="anonymous"/>
+             <audio ref={silentAudioRef} src="/soundless.mp3" preload="auto" loop playsInline/>
+
 
             {/* Error Modal */}
             <Modal
