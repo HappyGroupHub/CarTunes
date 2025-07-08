@@ -9,6 +9,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from typing import Dict
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,6 +39,10 @@ last_request_times = {}
 # Dictionary to store per-user request counts for bring to top throttling
 # Structure: {user_id: [(timestamp1, timestamp2, ...)]}
 user_bring_to_top_requests = {}
+
+# Dictionary to store WebSocket pinging tasks
+# Structure: {room_id: asyncio.Task}
+pinging_tasks: Dict[str, asyncio.Task] = {}
 
 background_tasks = set()
 
@@ -619,6 +624,10 @@ async def skip_to_next_song(
         room.playback_state.current_time
     )
 
+    # Stop paused room ping/pong task if it exists
+    if room_id in pinging_tasks:
+        stop_pinging_task(room_id)
+
     # Check autoplay after skipping
     if next_song and room.autoplay and len(room.queue) == 0:
         asyncio.create_task(async_check_autoplay(room_id))
@@ -752,17 +761,16 @@ async def update_playback(
     room = room_manager.get_room(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
-
     # Check if user is in room
     if not any(m.user_id == user_id for m in room.members):
         raise HTTPException(status_code=403, detail="Not a room member")
 
+    was_playing = room.playback_state.is_playing
     success = room_manager.update_playback_state(
         room_id,
         request.is_playing,
         request.current_time
     )
-
     if not success:
         raise HTTPException(status_code=500, detail="Failed to update playback")
 
@@ -772,6 +780,13 @@ async def update_playback(
         request.is_playing,
         request.current_time
     ))
+
+    # Ping task management for Paused rooms
+    if was_playing and not request.is_playing:
+        start_pinging_task(room_id)
+    elif room_id in pinging_tasks and not was_playing and request.is_playing:
+        stop_pinging_task(room_id)
+
 
     return {
         "is_playing": request.is_playing,
@@ -902,6 +917,9 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
                 data = await websocket.receive_text()
                 try:
                     message = json.loads(data)
+                    # Handle PONG messages from the client
+                    if message.get('type') == 'pong':
+                        await ws_manager.handle_pong(websocket)
                     # Handle other message types as needed
                 except json.JSONDecodeError:
                     logger.warning(f"Invalid JSON from client: {data}")
@@ -925,6 +943,45 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
             room_manager.update_active_connections(room_id_disconnected, connection_count)
             await ws_manager.broadcast_room_stats_update(room_id_disconnected, connection_count,
                                                          room.autoplay)
+
+
+# ===== Ping/Pong Task For Paused Room =====
+
+
+async def _ping_task(room_id: str):
+    """A dedicated task that sends pings to a manually paused room every 5 seconds."""
+    ping_message = WSMessage(type=WSMessageType.PING, data={})
+    while True:
+        try:
+            room = room_manager.get_room(room_id)
+            # Stop if room is gone, or if music is no longer paused
+            if not room or room.playback_state.is_playing:
+                break
+
+            logger.debug(f"Room {room_id} is manually paused, sending keep-alive ping.")
+            await ws_manager.broadcast_to_room(room_id, ping_message)
+            await asyncio.sleep(5)  # Ping every 5 seconds
+        except asyncio.CancelledError:
+            # Task was cancelled, which is expected when music is played again
+            break
+        except Exception as e:
+            logger.error(f"Error in ping task for {room_id}: {e}")
+            break
+
+
+def start_pinging_task(room_id: str):
+    """Start a keep-alive ping task for a specific room. (When music is manually paused)"""
+    if room_id in pinging_tasks:
+        pinging_tasks[room_id].cancel()
+
+    pinging_tasks[room_id] = asyncio.create_task(_ping_task(room_id))
+
+
+def stop_pinging_task(room_id: str):
+    """Stop the keep-alive ping task for a specific room. (If music is played again)"""
+    if room_id in pinging_tasks:
+        pinging_tasks[room_id].cancel()
+        pinging_tasks.pop(room_id, None)
 
 
 if __name__ == "__main__":

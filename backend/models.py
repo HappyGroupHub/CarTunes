@@ -57,6 +57,10 @@ class WSMessageType(str, Enum):
     ROOM_STATE = "room_state"
     ROOM_STATS_UPDATE = "room_stats_update"
 
+    # Keep-alive messages, used while music is paused
+    PING = "ping"
+    PONG = "pong"
+
     # Error messages
     ERROR = "error"
 

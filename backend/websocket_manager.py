@@ -21,6 +21,7 @@ class ConnectionManager:
         self.active_connections: Dict[str, Set[WebSocket]] = {}
         # websocket -> (room_id, user_id)
         self.connection_info: Dict[WebSocket, tuple] = {}
+        self.last_pong: Dict[WebSocket, datetime] = {}
 
     async def connect(self, websocket: WebSocket, room_id: str, user_id: str, room_manager=None):
         """Add new WebSocket connection"""
@@ -31,6 +32,7 @@ class ConnectionManager:
 
         self.active_connections[room_id].add(websocket)
         self.connection_info[websocket] = (room_id, user_id)
+        self.last_pong[websocket] = datetime.now()
 
         # Cancel both timers since room now has connections
         if room_manager:
@@ -43,6 +45,7 @@ class ConnectionManager:
         None, None]:
         """Remove WebSocket connection and return room_id, user_id"""
         connection_data = self.connection_info.pop(websocket, None)
+        self.last_pong.pop(websocket, None)
 
         if connection_data:
             room_id, user_id = connection_data
@@ -67,6 +70,10 @@ class ConnectionManager:
             return room_id, user_id
 
         return None, None
+
+    async def handle_pong(self, websocket: WebSocket):
+        """Handle a pong message from a client."""
+        self.last_pong[websocket] = datetime.now()
 
     async def send_personal_message(self, message: WSMessage, websocket: WebSocket):
         """Send message to specific connection"""

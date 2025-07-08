@@ -66,7 +66,12 @@ export function useWebSocket({
             wsRef.current.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data)
-                    // Remove the pong filtering since we're not using ping/pong anymore
+                    // Handle ping from server
+                    if (data.type === 'ping') {
+                        // Respond with a pong to keep the connection alive, for paused room
+                        sendMessage({ type: 'pong' });
+                        return;
+                    }
                     onMessage?.(data)
                 } catch (error) {
                     console.error("Failed to parse WebSocket message:", error)
