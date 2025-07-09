@@ -1,37 +1,64 @@
 # The InnerTube API allows you to search for videos/musics on YouTube without
 # using the official YouTube Data API.
+import asyncio
 import re
 
-import requests
+import httpx
 
 import utilities as utils
 
 config = utils.read_config()
 
 
-def search_youtube(query: str) -> list:
+async def search_both_concurrent(query: str) -> tuple[list, list]:
+    """Search both YouTube and YouTube Music with keywords concurrently.
+
+    :param str query: The search query.
+    :return: Tuple of (youtube_results, youtube_music_results)
+    :rtype: Tuple[List, List]
+    """
+    youtube_task = search_youtube(query)
+    youtube_music_task = search_youtube_music(query)
+
+    youtube_results, youtube_music_results = await asyncio.gather(
+        youtube_task, youtube_music_task, return_exceptions=True
+    )
+
+    # Handle exceptions
+    if isinstance(youtube_results, Exception):
+        print(f"YouTube search error: {youtube_results}")
+        youtube_results = []
+
+    if isinstance(youtube_music_results, Exception):
+        print(f"YouTube Music search error: {youtube_music_results}")
+        youtube_music_results = []
+
+    return youtube_results, youtube_music_results
+
+
+async def search_youtube(query: str) -> list:
     """Searches YouTube for videos based on the query.
     :param query: The search query.
     :return: A list of dictionaries containing video details.
     :rtype: List
     """
-    data = _search_youtube(query)
+    data = await _search_youtube(query)
     results = parse_youtube_results(data)
     filtered_results = [item for item in results if item.get('type') not in ('short', 'live')]
     return filtered_results
 
 
-def search_youtube_music(query: str) -> list:
+async def search_youtube_music(query: str) -> list:
     """Searches YouTube Music for songs based on the query.
     :param query: The search query.
     :return: A list of dictionaries containing music details.
     :rtype: List
     """
-    data = _search_youtube_music(query)
+    data = await _search_youtube_music(query)
     return parse_youtube_music_search_results(data)
 
 
-def _search_youtube(query: str) -> dict:
+async def _search_youtube(query: str) -> dict:
     url = "https://youtubei.googleapis.com/youtubei/v1/search?prettyPrint=false"
 
     payload = {
@@ -52,11 +79,12 @@ def _search_youtube(query: str) -> dict:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
 
-    response = requests.post(url, json=payload, headers=headers)
-    return response.json()
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(url, json=payload, headers=headers)
+        return response.json()
 
 
-def _search_youtube_music(query: str) -> dict:
+async def _search_youtube_music(query: str) -> dict:
     url = "https://music.youtube.com/youtubei/v1/search?prettyPrint=false"
 
     payload = {
@@ -77,8 +105,9 @@ def _search_youtube_music(query: str) -> dict:
         "Referer": "music.youtube.com"
     }
 
-    response = requests.post(url, json=payload, headers=headers)
-    return response.json()
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(url, json=payload, headers=headers)
+        return response.json()
 
 
 def parse_youtube_results(data: dict) -> list:

@@ -16,7 +16,7 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
 
 import utilities as utils
 from innertube.audio_extractor import get_audio_stream_info
-from innertube.search import search_youtube, search_youtube_music
+from innertube.search import search_both_concurrent
 from line_extensions.async_webhook import AsyncWebhookHandler
 from room_manager import RoomManager
 
@@ -304,7 +304,7 @@ def create_search_results_carousel(youtube_results: list, youtube_music_results:
 
         display_title = title
         if page == 0 and i == 0 and youtube_music_results:
-            display_title = "🎵 " + title # Music note for YouTube Music
+            display_title = "🎵 " + title  # Music note for YouTube Music
 
         # Estimate postback data length
         estimated_length = estimate_postback_length(video_id, title, channel, duration, thumbnail)
@@ -719,8 +719,8 @@ async def handle_message(event):
                 return
 
             try:
-                youtube_results = search_youtube(message_received)
-                youtube_music_results = search_youtube_music(message_received)
+                youtube_results, youtube_music_results = await search_both_concurrent(
+                    message_received)
                 if youtube_results or youtube_music_results:
                     # Create and send carousel message with both result types
                     carousel_message = create_search_results_carousel(
@@ -856,8 +856,8 @@ async def handle_postback(event):
                 page = int(parts[2])
 
                 try:
-                    youtube_results = search_youtube(user_input)
-                    youtube_music_results = search_youtube_music(user_input)
+                    youtube_results, youtube_music_results = await search_both_concurrent(
+                        user_input)
                     if youtube_results or youtube_music_results:
                         carousel_message = create_search_results_carousel(
                             youtube_results, youtube_music_results, user_input, page
