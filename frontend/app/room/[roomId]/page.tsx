@@ -182,7 +182,6 @@ export default function RoomPage() {
                 artwork: [
                     {
                         src: current_song.thumbnail || "/placeholder.jpg",
-                        sizes: '512x512',
                         type: 'image/jpeg',
                     },
                 ],
