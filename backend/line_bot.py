@@ -16,7 +16,7 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
 
 import utilities as utils
 from innertube.audio_extractor import get_audio_stream_info
-from innertube.search import search_youtube
+from innertube.search import search_youtube, search_youtube_music
 from line_extensions.async_webhook import AsyncWebhookHandler
 from room_manager import RoomManager
 
@@ -276,21 +276,35 @@ async def leave_room(user_id: str, room_id: str) -> bool:
 
 # ===== Handel Message Event =====
 
-def create_search_results_carousel(search_results: list, user_input: str, page: int = 0):
-    """Create LINE Flex carousel for search results."""
+def create_search_results_carousel(youtube_results: list, youtube_music_results: list,
+                                   user_input: str, page: int = 0):
+    """Create LINE Flex carousel for search results with YouTube Music prioritized on first page."""
+
+    # Combine results with YouTube Music first on page 0
+    if page == 0 and youtube_music_results:
+        # First result from YouTube Music, then YouTube results
+        combined_results = youtube_music_results[:1] + youtube_results
+    else:
+        # For other pages, just use YouTube results
+        combined_results = youtube_results
+
     start_index = page * 4
     end_index = start_index + 4
-    current_results = search_results[start_index:end_index]
+    current_results = combined_results[start_index:end_index]
 
     bubbles = []
 
     # Add result bubbles
-    for result in current_results:
+    for i, result in enumerate(current_results):
         video_id = result.get('id')
         title = result.get('title', 'Unknown Title')
         channel = result.get('channel', 'Unknown')
         duration = result.get('duration', 'N/A')
         thumbnail = result.get('thumbnail', '')
+
+        display_title = title
+        if page == 0 and i == 0 and youtube_music_results:
+            display_title = "🎵 " + title # Music note for YouTube Music
 
         # Estimate postback data length
         estimated_length = estimate_postback_length(video_id, title, channel, duration, thumbnail)
@@ -329,7 +343,7 @@ def create_search_results_carousel(search_results: list, user_input: str, page: 
                 "contents": [
                     {
                         "type": "text",
-                        "text": title,
+                        "text": display_title,
                         "weight": "bold",
                         "size": "sm",
                         "wrap": True,
@@ -376,7 +390,7 @@ def create_search_results_carousel(search_results: list, user_input: str, page: 
     navigation_contents = []
 
     # Show next page button if there are more results
-    if end_index < len(search_results):
+    if end_index < len(combined_results):
         navigation_contents.append({
             "type": "button",
             "style": "secondary",
@@ -387,17 +401,26 @@ def create_search_results_carousel(search_results: list, user_input: str, page: 
             }
         })
 
-    # Always show search on YouTube button with proper URL encoding
     encoded_query = urllib.parse.quote_plus(user_input)
-    search_url = f"https://www.youtube.com/results?search_query={encoded_query}"
-
+    youtube_search_url = f"https://www.youtube.com/results?search_query={encoded_query}"
     navigation_contents.append({
         "type": "button",
         "style": "link",
         "action": {
             "type": "uri",
-            "label": "自行搜尋",
-            "uri": search_url
+            "label": "搜尋 YouTube",
+            "uri": youtube_search_url
+        }
+    })
+
+    yt_music_search_url = f"https://music.youtube.com/search?q={encoded_query}"
+    navigation_contents.append({
+        "type": "button",
+        "style": "link",
+        "action": {
+            "type": "uri",
+            "label": "搜尋 YT Music",
+            "uri": yt_music_search_url
         }
     })
 
@@ -696,11 +719,13 @@ async def handle_message(event):
                 return
 
             try:
-                search_results = search_youtube(message_received)
-                if search_results:
-                    # Create and send carousel message
-                    carousel_message = create_search_results_carousel(search_results,
-                                                                      message_received)
+                youtube_results = search_youtube(message_received)
+                youtube_music_results = search_youtube_music(message_received)
+                if youtube_results or youtube_music_results:
+                    # Create and send carousel message with both result types
+                    carousel_message = create_search_results_carousel(
+                        youtube_results, youtube_music_results, message_received
+                    )
                     await line_bot_api.reply_message(
                         ReplyMessageRequest(
                             reply_token=event.reply_token, messages=[carousel_message]
@@ -709,9 +734,7 @@ async def handle_message(event):
                 else:
                     reply_message = TextMessage(text="找不到相關歌曲，請嘗試其他關鍵字！")
                     await line_bot_api.reply_message(
-                        ReplyMessageRequest(
-                            reply_token=event.reply_token, messages=[reply_message]
-                        )
+                        ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
                     )
             except Exception as e:
                 print(f"Search error: {e}")
@@ -833,10 +856,12 @@ async def handle_postback(event):
                 page = int(parts[2])
 
                 try:
-                    search_results = search_youtube(user_input)
-                    if search_results:
-                        carousel_message = create_search_results_carousel(search_results,
-                                                                          user_input, page)
+                    youtube_results = search_youtube(user_input)
+                    youtube_music_results = search_youtube_music(user_input)
+                    if youtube_results or youtube_music_results:
+                        carousel_message = create_search_results_carousel(
+                            youtube_results, youtube_music_results, user_input, page
+                        )
                         await line_bot_api.reply_message(
                             ReplyMessageRequest(
                                 reply_token=event.reply_token, messages=[carousel_message]
