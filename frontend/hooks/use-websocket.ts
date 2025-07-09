@@ -187,5 +187,7 @@ export function useWebSocket({
         sendMessage,
         disconnect,
         reconnect: connect,
+        playSilentAudio,
+        stopSilentAudio
     }
 }

@@ -890,7 +890,7 @@ export default function RoomPage() {
         }
     }, [roomId, setSongDownloading, setAudioLoading, setAudioError, isNewUserLoadingAudio, room, loadAudioForCurrentSong])
 
-    const {isConnected, connectionStatus} = useWebSocket({
+    const {isConnected, connectionStatus, playSilentAudio, stopSilentAudio} = useWebSocket({
         url: `${API_ENDPOINTS.WEBSOCKET(roomId)}?user_id=${userId}`,
         onMessage: handleWebSocketMessage,
         onConnect: useCallback(() => {
@@ -909,6 +909,17 @@ export default function RoomPage() {
         silentAudioRef,
         onSilentAudioStateChange: setIsPlayingSilentAudio,
     })
+
+    // Play silent audio during loading states if user has interacted
+    useEffect(() => {
+        if ((songDownloading || audioLoading) && hasUserInteractedWithPlayButton && playSilentAudio) {
+            console.log("Starting silent audio during loading state")
+            playSilentAudio()
+        } else if (!(songDownloading || audioLoading) && stopSilentAudio) {
+            console.log("Stopping silent audio after loading")
+            stopSilentAudio()
+        }
+    }, [songDownloading, audioLoading, hasUserInteractedWithPlayButton, playSilentAudio, stopSilentAudio])
 
     useEffect(() => {
         return () => {
