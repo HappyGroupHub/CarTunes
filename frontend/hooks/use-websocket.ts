@@ -13,6 +13,7 @@ interface UseWebSocketOptions {
     reconnectInterval?: number
     maxReconnectAttempts?: number
     silentAudioRef?: React.RefObject<HTMLAudioElement>
+    onSilentAudioStateChange?: (isPlaying: boolean) => void
 }
 
 export function useWebSocket({
@@ -26,6 +27,7 @@ export function useWebSocket({
                                  reconnectInterval = 1000,
                                  maxReconnectAttempts = 5,
                                  silentAudioRef,
+                                 onSilentAudioStateChange,
                              }: UseWebSocketOptions) {
     const [isConnected, setIsConnected] = useState(false)
     const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "disconnected" | "error">(
@@ -41,19 +43,27 @@ export function useWebSocket({
     const playSilentAudio = useCallback(() => {
         // This is specifically for prevent IOS mobile cleaning up the connection
         if (silentAudioRef?.current && 'mediaSession' in navigator) {
+            // Disable remote playback to prevent Media Session API from picking it up
+            silentAudioRef.current.disableRemotePlayback = true;
+            silentAudioRef.current.volume = 0;
+
             silentAudioRef.current.loop = true;
             silentAudioRef.current.play().catch(e => console.error("Silent audio play failed:", e));
             console.log("Silent audio playing");
+
+            onSilentAudioStateChange?.(true);
         }
-    }, [silentAudioRef]);
+    }, [silentAudioRef, onSilentAudioStateChange]);
 
     const stopSilentAudio = useCallback(() => {
         if (silentAudioRef?.current && 'mediaSession' in navigator) {
             silentAudioRef.current.pause();
             silentAudioRef.current.currentTime = 0;
             console.log("Silent audio stopped");
+
+            onSilentAudioStateChange?.(false);
         }
-    }, [silentAudioRef]);
+    }, [silentAudioRef, onSilentAudioStateChange]);
 
 
     const connect = useCallback(() => {
@@ -133,84 +143,49 @@ export function useWebSocket({
                 console.error("WebSocket error:", error)
                 setConnectionStatus("error")
                 onError?.(error)
-                stopSilentAudio();
             }
         } catch (error) {
+            console.error("Failed to create WebSocket:", error)
             setConnectionStatus("error")
-            console.error("WebSocket connection error:", error)
         }
-    }, [
-        url,
-        enabled,
-        onMessage,
-        onConnect,
-        onDisconnect,
-        onError,
-        onConnectionFailed,
-        reconnectInterval,
-        maxReconnectAttempts,
-        playSilentAudio,
-        stopSilentAudio
-    ])
+    }, [url, onMessage, onConnect, onDisconnect, onError, onConnectionFailed, enabled, reconnectInterval, maxReconnectAttempts, playSilentAudio, stopSilentAudio])
 
     const disconnect = useCallback(() => {
-        console.log("Manually disconnecting WebSocket")
         isManuallyClosedRef.current = true
-        stopSilentAudio();
-
         if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current)
             reconnectTimeoutRef.current = null
         }
-
-        if (wsRef.current && wsRef.current.readyState <= WebSocket.OPEN) {
-            wsRef.current.close(1000, "Manual disconnect")
+        if (wsRef.current) {
+            wsRef.current.close()
             wsRef.current = null
         }
+        stopSilentAudio()
+    }, [stopSilentAudio])
 
-        setIsConnected(false)
-        setConnectionStatus("disconnected")
-        reconnectAttemptsRef.current = 0
-        connectionRetryDelayRef.current = reconnectInterval
-    }, [reconnectInterval, stopSilentAudio])
-
-    const sendMessage = useCallback((message: any) => {
+    const sendMessage = useCallback((data: any) => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify(message))
-            return true
+            wsRef.current.send(JSON.stringify(data))
+        } else {
+            console.warn("WebSocket is not connected. Cannot send message.")
         }
-        console.warn("WebSocket not ready, message not sent:", message)
-        return false
     }, [])
 
+    // Connect on mount if enabled
     useEffect(() => {
         if (enabled) {
-            isManuallyClosedRef.current = false
-            reconnectAttemptsRef.current = 0
-            connectionRetryDelayRef.current = reconnectInterval
             connect()
-        } else {
-            disconnect()
         }
-
         return () => {
             disconnect()
         }
     }, [enabled, connect, disconnect])
 
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
-            isManuallyClosedRef.current = true
-            disconnect()
-        }
-    }, [disconnect])
-
     return {
         isConnected,
         connectionStatus,
         sendMessage,
-        connect,
         disconnect,
+        reconnect: connect,
     }
 }

@@ -99,6 +99,7 @@ export default function RoomPage() {
 
     const audioRef = useRef<HTMLAudioElement>(null)
     const silentAudioRef = useRef<HTMLAudioElement>(null)
+    const [isPlayingSilentAudio, setIsPlayingSilentAudio] = useState(false)
     const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
     const audioLoaderCleanupRef = useRef<(() => void) | null>(null)
 
@@ -223,20 +224,36 @@ export default function RoomPage() {
 
     }, [room, togglePlayback, skipToNext]);
 
-
     // This useEffect updates the mobile local control panel playback state
     useEffect(() => {
         if (!('mediaSession' in navigator)) return;
 
         if (isPlaybackRequestPending) {
             // While a request is in flight, the state is indeterminate.
-            // This prevents the UI from showing a wrong icon during the throttle period.
             navigator.mediaSession.playbackState = 'none';
+        } else if (isPlayingSilentAudio) {
+            // When playing silent audio, force the playback state to paused
+            navigator.mediaSession.playbackState = 'paused';
         } else {
-            // Once the request is done, sync with the true state from the room.
+            // Normal operation - sync with the true state from the room
             navigator.mediaSession.playbackState = room?.playback_state.is_playing ? 'playing' : 'paused';
         }
-    }, [room?.playback_state.is_playing, isPlaybackRequestPending]);
+    }, [room?.playback_state.is_playing, isPlaybackRequestPending, isPlayingSilentAudio]);
+
+    useEffect(() => {
+        if (silentAudioRef.current) {
+            // Set attributes to prevent media session detection
+            silentAudioRef.current.disableRemotePlayback = true;
+            silentAudioRef.current.volume = 0;
+            silentAudioRef.current.muted = true;
+
+            // Try to remove it from media session consideration
+            if ('mediaSession' in navigator) {
+                // Some browsers respect this attribute
+                (silentAudioRef.current as any).mediaGroup = 'silent';
+            }
+        }
+    }, []);
 
     // Callbacks for audio-loader, made stable by not depending on 'room' directly
     const handleLoadedMetadata = useCallback((audioElement: HTMLAudioElement, initialTime: number) => {
@@ -890,6 +907,7 @@ export default function RoomPage() {
         reconnectInterval: 2000,
         maxReconnectAttempts: 3,
         silentAudioRef,
+        onSilentAudioStateChange: setIsPlayingSilentAudio,
     })
 
     useEffect(() => {
@@ -1352,7 +1370,16 @@ export default function RoomPage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600">
             <audio ref={audioRef} preload="metadata" crossOrigin="anonymous"/>
-             <audio ref={silentAudioRef} src="/soundless.mp3" preload="auto" loop playsInline/>
+            <audio
+                ref={silentAudioRef}
+                src="/soundless.mp3"
+                preload="auto"
+                loop
+                playsInline
+                // Add these attributes to prevent media session interference
+                muted
+                style={{display: 'none'}}
+            />
 
 
             {/* Error Modal */}
