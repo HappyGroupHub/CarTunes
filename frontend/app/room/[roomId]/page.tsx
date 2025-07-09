@@ -198,6 +198,9 @@ export default function RoomPage() {
         if (!('mediaSession' in navigator)) {
             return;
         }
+        if (!isConnected) {
+            return;
+        }
 
         // --- Play Action ---
         navigator.mediaSession.setActionHandler('play', () => {
