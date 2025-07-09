@@ -299,9 +299,17 @@ async def audio_preloader():
             for room_id in room_manager.rooms.keys():
                 room = room_manager.get_room(room_id)
                 if room and room.queue:
-                    # Get video IDs of upcoming songs
+                    # Get top 5 video IDs of upcoming songs from queue
                     upcoming_video_ids = [song.video_id for song in room.queue[:5]]
-                    await audio_cache.preload_queue_songs(upcoming_video_ids)
+
+                    # Also preload top 3 songs from autoplay_playlist
+                    if room.autoplay_playlist:
+                        autoplay_video_ids = [song_data['video_id'] for song_data in
+                                              room.autoplay_playlist[:3]]
+                        upcoming_video_ids.extend(autoplay_video_ids)
+
+                    if upcoming_video_ids:
+                        await audio_cache.preload_queue_songs(upcoming_video_ids)
 
         except Exception as e:
             logger.error(f"Error in audio preloader: {e}")
