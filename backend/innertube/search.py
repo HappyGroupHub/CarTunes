@@ -1,6 +1,9 @@
 # The InnerTube API allows you to search for videos/musics on YouTube without
 # using the official YouTube Data API.
+import re
+
 import requests
+
 import utilities as utils
 
 config = utils.read_config()
@@ -179,11 +182,11 @@ def parse_youtube_music_search_results(data: dict) -> list:
 
             item_renderer = item['musicResponsiveListItemRenderer']
 
-            # Extract common data
             video_id = item_renderer.get('playlistItemData', {}).get('videoId')
             thumbnail = \
                 item_renderer.get('thumbnail', {}).get('musicThumbnailRenderer', {}).get(
                     'thumbnail', {}).get('thumbnails', [{}])[-1].get('url')
+            thumbnail = improve_google_thumbnail_quality(thumbnail)
 
             # The main info is split into several 'flexColumns'
             flex_columns = item_renderer.get('flexColumns', [])
@@ -235,3 +238,33 @@ def parse_youtube_music_search_results(data: dict) -> list:
             })
 
     return results
+
+
+def improve_google_thumbnail_quality(thumbnail_url: str, target_size: int = 544) -> str:
+    """Improves Google Images thumbnail quality by modifying URL parameters.
+    This is specifically designed to use for YouTube Music thumbnails.
+
+    :param thumbnail_url: Original thumbnail URL
+    :param target_size: Target width/height in pixels (default 544 for good quality)
+    :return: Modified URL with better quality, or original URL if not applicable
+    """
+    if not thumbnail_url or 'googleusercontent.com' not in thumbnail_url:
+        return thumbnail_url
+
+    # Pattern to match Google Images URL parameters like =w120-h120-l90-rj
+    pattern = r'=w\d+-h\d+(-l\d+)?(-rj)?$'
+
+    if re.search(pattern, thumbnail_url):
+        # Replace with higher quality parameters
+        # Keep the same format but with higher resolution
+        new_params = f"=w{target_size}-h{target_size}-l90-rj"
+        improved_url = re.sub(pattern, new_params, thumbnail_url)
+        return improved_url
+
+    # If no parameters found, try adding them
+    elif '=' in thumbnail_url:
+        # There might be other parameters, append our quality params
+        return f"{thumbnail_url}=w{target_size}-h{target_size}-l90-rj"
+    else:
+        # No parameters at all, add them
+        return f"{thumbnail_url}=w{target_size}-h{target_size}-l90-rj"
