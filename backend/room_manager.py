@@ -10,8 +10,8 @@ from typing import Dict, Optional, List
 
 import requests
 
-from innertube.recommendations import get_yt_recommendations, get_yt_music_recommendations
 import utilities as utils
+from innertube.recommendations import get_yt_recommendations, get_yt_music_recommendations
 from models import Room, Member, Song, PlaybackState
 
 logger = logging.getLogger(__name__)
@@ -341,7 +341,7 @@ class RoomManager:
         logger.info(f"Room {room_id} autoplay toggled to: {room.autoplay}")
         return room.autoplay
 
-    def check_and_add_autoplay_song(self, room_id: str) -> Optional[Song]:
+    async def check_and_add_autoplay_song(self, room_id: str) -> Optional[Song]:
         """Check if autoplay should add a song, add it if needed"""
         room = self.get_room(room_id)
         if not room or not room.autoplay:
@@ -375,7 +375,7 @@ class RoomManager:
         search_engine = config['autoplay_search_engine']
 
         if search_engine == 'youtube_music':
-            recommendations = get_yt_music_recommendations(room.current_song.video_id)
+            recommendations = await get_yt_music_recommendations(room.current_song.video_id)
             if recommendations:
                 valid_songs = []
                 for rec in recommendations:
@@ -410,7 +410,7 @@ class RoomManager:
                     return new_song
 
         else:  # youtube search
-            recommendations = get_yt_recommendations(room.current_song.video_id)
+            recommendations = await get_yt_recommendations(room.current_song.video_id)
             if recommendations:
                 for rec in recommendations:
                     if rec.get('duration') and utils.check_video_duration(rec['duration']):

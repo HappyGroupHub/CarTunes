@@ -138,11 +138,7 @@ async def broadcast_playback_progress():
 async def async_check_autoplay(room_id: str):
     """Asynchronously check and add autoplay song"""
     try:
-        # Run the check in a separate thread to avoid blocking the event loop
-        autoplay_song = await asyncio.to_thread(
-            room_manager.check_and_add_autoplay_song,
-            room_id
-        )
+        autoplay_song = await room_manager.check_and_add_autoplay_song(room_id)
 
         if autoplay_song:
             # Broadcast the new song when it's ready
@@ -786,7 +782,6 @@ async def update_playback(
         start_pinging_task(room_id)
     elif room_id in pinging_tasks and not was_playing and request.is_playing:
         stop_pinging_task(room_id)
-
 
     return {
         "is_playing": request.is_playing,

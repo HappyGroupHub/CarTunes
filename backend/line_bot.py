@@ -666,7 +666,7 @@ async def handle_message(event):
                 )
                 return
 
-            audio_info = get_audio_stream_info(video_id)
+            audio_info = await get_audio_stream_info(video_id)
             if not audio_info:
                 reply_message = TextMessage(text="❌ 新增歌曲失敗，請檢查連結是否正確！")
                 await line_bot_api.reply_message(

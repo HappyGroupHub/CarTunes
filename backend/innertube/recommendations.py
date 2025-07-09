@@ -1,12 +1,13 @@
 from typing import List, Dict, Optional
 
-import requests
+import httpx
+
 import utilities as utils
 
 config = utils.read_config()
 
 
-def get_yt_recommendations(video_id: str) -> Optional[List[Dict]]:
+async def get_yt_recommendations(video_id: str) -> Optional[List[Dict]]:
     """Fetches recommended videos for a given video ID using the InnerTube API.
 
     :param video_id: The YouTube video ID.
@@ -32,20 +33,21 @@ def get_yt_recommendations(video_id: str) -> Optional[List[Dict]]:
     }
 
     try:
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-        data = response.json()
-        return _parse_recommendations_payload(data)
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            return _parse_recommendations_payload(data)
+    except Exception as e:
         print(f"Error fetching recommendations for {video_id}: {e}")
         return None
 
 
-def get_yt_music_recommendations(video_id: str) -> Optional[List[Dict]]:
+async def get_yt_music_recommendations(video_id: str) -> Optional[List[Dict]]:
     """Fetches recommended music tracks by first getting the automix playlist details,
     then fetching that playlist's contents to get the recommended tracks.
     """
-    playlist_details = _get_playlist_details(video_id)
+    playlist_details = await _get_playlist_details(video_id)
     if not playlist_details:
         return None
 
@@ -66,13 +68,12 @@ def get_yt_music_recommendations(video_id: str) -> Optional[List[Dict]]:
     }
 
     try:
-        response = requests.post(url, json=payload)
-        response.raise_for_status()
-        data = response.json()
-
-        return _parse_watch_playlist_response(data)
-
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return _parse_watch_playlist_response(data)
+    except Exception as e:
         print(f"Error fetching YouTube Music playlist contents: {e}")
         return None
 
@@ -115,7 +116,7 @@ def _parse_recommendations_payload(data: Dict) -> List[Dict]:
     return results
 
 
-def _get_playlist_details(video_id: str) -> Optional[Dict]:
+async def _get_playlist_details(video_id: str) -> Optional[Dict]:
     """Hits the /next endpoint to get playlistId and params for YouTube Music auto-mix,
     an auto-generated recommended playlist.
     """
@@ -131,27 +132,28 @@ def _get_playlist_details(video_id: str) -> Optional[Dict]:
     }
 
     try:
-        response = requests.post(url, json=payload)
-        response.raise_for_status()
-        data = response.json()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
 
-        # Navigate through the JSON to find the automix renderer's endpoint
-        playlist_panel = \
-            data['contents']['singleColumnMusicWatchNextResultsRenderer']['tabbedRenderer'][
-                'watchNextTabbedResultsRenderer']['tabs'][0]['tabRenderer']['content'][
-                'musicQueueRenderer']['content']['playlistPanelRenderer']
+            # Navigate through the JSON to find the automix renderer's endpoint
+            playlist_panel = \
+                data['contents']['singleColumnMusicWatchNextResultsRenderer']['tabbedRenderer'][
+                    'watchNextTabbedResultsRenderer']['tabs'][0]['tabRenderer']['content'][
+                    'musicQueueRenderer']['content']['playlistPanelRenderer']
 
-        automix_renderer = playlist_panel['contents'][1]['automixPreviewVideoRenderer']
-        watch_endpoint = \
-            automix_renderer['content']['automixPlaylistVideoRenderer']['navigationEndpoint'][
-                'watchPlaylistEndpoint']
+            automix_renderer = playlist_panel['contents'][1]['automixPreviewVideoRenderer']
+            watch_endpoint = \
+                automix_renderer['content']['automixPlaylistVideoRenderer']['navigationEndpoint'][
+                    'watchPlaylistEndpoint']
 
-        playlist_id = watch_endpoint['playlistId']
-        params = watch_endpoint['params']
+            playlist_id = watch_endpoint['playlistId']
+            params = watch_endpoint['params']
 
-        return {'playlistId': playlist_id, 'params': params}
+            return {'playlistId': playlist_id, 'params': params}
 
-    except (requests.exceptions.RequestException, KeyError, IndexError) as e:
+    except Exception as e:
         print(f"Error finding playlist details for {video_id}: {e}")
         return None
 
@@ -203,24 +205,32 @@ if __name__ == "__main__":
     target_video_id = 'B1tArM5XYuc'
     use_music_search = False
 
-    if use_music_search:
-        recommendations = get_yt_music_recommendations(target_video_id)
 
-        if recommendations:
-            print(f"\nSuccessfully found {len(recommendations)} recommended songs:")
-            for i, track in enumerate(recommendations[:10]):
-                print(f"  {i + 1:2d}. {track['title']} by {track['channel']} ({track['duration']})")
+    async def main():
+        if use_music_search:
+            recommendations = await get_yt_music_recommendations(target_video_id)
+
+            if recommendations:
+                print(f"\nSuccessfully found {len(recommendations)} recommended songs:")
+                for i, track in enumerate(recommendations[:10]):
+                    print(
+                        f"  {i + 1:2d}. {track['title']} by {track['channel']} ({track['duration']})")
+            else:
+                print("\nCould not retrieve any recommendations.")
+
         else:
-            print("\nCould not retrieve any recommendations.")
+            recommendations = await get_yt_recommendations(target_video_id)
 
-    else:
-        recommendations = get_yt_recommendations(target_video_id)
+            if recommendations:
+                print(f"\nFound {len(recommendations)} recommended videos:")
+                for i, video in enumerate(recommendations[:10]):
+                    print(f"  {i + 1}. {video['title']}")
+                    print(f"     Channel: {video['channel']}")
+                    print(f"     ID: {video['id']}, Duration: {video['duration']}\n")
+            else:
+                print("Could not retrieve recommendations.")
 
-        if recommendations:
-            print(f"\nFound {len(recommendations)} recommended videos:")
-            for i, video in enumerate(recommendations[:10]):
-                print(f"  {i + 1}. {video['title']}")
-                print(f"     Channel: {video['channel']}")
-                print(f"     ID: {video['id']}, Duration: {video['duration']}\n")
-        else:
-            print("Could not retrieve recommendations.")
+
+    import asyncio
+
+    asyncio.run(main())
