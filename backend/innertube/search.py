@@ -297,3 +297,36 @@ def improve_google_thumbnail_quality(thumbnail_url: str, target_size: int = 544)
     else:
         # No parameters at all, add them
         return f"{thumbnail_url}=w{target_size}-h{target_size}-l90-rj"
+
+
+if __name__ == "__main__":
+    test_query = "never gonna give you up"
+    search_engine = "both"  # Options: "both", "youtube_music", "youtube"
+
+
+    async def main():
+        if search_engine == "both":
+            yt_results, music_results = await search_both_concurrent(test_query)
+            print(f"\nYouTube results ({len(yt_results)}):")
+            for i, video in enumerate(yt_results[:10]):
+                print(
+                    f"  {i + 1}. {video['title']} by {video['channel']} ({video.get('duration')})")
+            print(f"\nYouTube Music results ({len(music_results)}):")
+            for i, song in enumerate(music_results[:10]):
+                print(f"  {i + 1}. {song['title']} by {song['channel']} ({song.get('duration')})")
+        elif search_engine == "youtube_music":
+            music_results = await search_youtube_music(test_query)
+            print(f"\nYouTube Music results ({len(music_results)}):")
+            for i, song in enumerate(music_results[:10]):
+                print(f"  {i + 1}. {song['title']} by {song['channel']} ({song.get('duration')})")
+        elif search_engine == "youtube":
+            yt_results = await search_youtube(test_query)
+            print(f"\nYouTube results ({len(yt_results)}):")
+            for i, video in enumerate(yt_results[:10]):
+                print(
+                    f"  {i + 1}. {video['title']} by {video['channel']} ({video.get('duration')})")
+        else:
+            print("Invalid search_engine value. Use 'both', 'youtube_music', or 'youtube'.")
+
+
+    asyncio.run(main())
