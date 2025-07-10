@@ -274,6 +274,21 @@ async def leave_room(user_id: str, room_id: str) -> bool:
         return False
 
 
+@app.delete("/api/room/leave")
+async def clear_user_rooms(request: Request, user_id: str):
+    """This function would be called from room_manger.py _cleanup_timer_task().
+    It is designed to be called internally to clear specific user in user_rooms while
+    system cleaning up inactive rooms.
+    """
+    # Only allow requests from localhost
+    client_ip = request.client.host
+    if client_ip != "127.0.0.1":
+        raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
+
+    if user_id in user_rooms:
+        del user_rooms[user_id]
+
+
 # ===== Handel Message Event =====
 
 def create_search_results_carousel(youtube_results: list, youtube_music_results: list,

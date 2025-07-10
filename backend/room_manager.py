@@ -8,7 +8,7 @@ import secrets
 from datetime import datetime
 from typing import Dict, Optional, List
 
-import requests
+import httpx
 
 import utilities as utils
 from innertube.recommendations import get_yt_recommendations, get_yt_music_recommendations
@@ -506,17 +506,18 @@ class RoomManager:
                 # Remove user mappings and rich menus
                 for member in room.members:
                     self.user_rooms.pop(member.user_id, None)
-                    try:  # Remove local user_rooms mappings for line_bot.py
-                        requests.delete(
-                            f"http://localhost:{config['line_webhook_port']}/api/room/leave",
-                            params={"user_id": member.user_id}
-                        )
+                    try:  # Remove user from line_bot.py's local user_rooms mappings
+                        with httpx.Client() as client:
+                            client.delete(
+                                f"http://localhost:{config['line_webhook_port']}/api/room/leave",
+                                params={"user_id": member.user_id}
+                            )
                     except Exception as e:
                         logger.error(
                             f"Error removing user {member.user_id} from room {room_id}: {e}")
                     try:  # Unlink rich menu from user
                         from line_bot import unlink_rich_menu_from_user
-                        unlink_rich_menu_from_user(member.user_id)
+                        await unlink_rich_menu_from_user(member.user_id)
                     except Exception as e:
                         logger.error(f"Error removing rich menu for user {member.user_id}: {e}")
 
