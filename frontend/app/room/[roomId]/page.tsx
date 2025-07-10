@@ -902,9 +902,11 @@ export default function RoomPage() {
             console.log("WebSocket disconnected")
         }, []),
         onConnectionFailed: useCallback(() => {
-            setErrorMessage("連線失敗，請檢查網路連線後重新整理頁面")
+            setErrorMessage("連線失敗！\n點擊下方按鈕重新整理")
+            setModalButtonText("重新載入頁面")
+            setModalAction(() => () => window.location.reload())
             setShowErrorModal(true)
-        }, [setErrorMessage, setShowErrorModal]),
+        }, [setErrorMessage, setModalButtonText, setModalAction, setShowErrorModal]),
         enabled: !isLoading && room !== null,
         reconnectInterval: 2000,
         maxReconnectAttempts: 3,
