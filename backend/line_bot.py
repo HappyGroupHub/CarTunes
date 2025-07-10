@@ -295,13 +295,24 @@ def create_search_results_carousel(youtube_results: list, youtube_music_results:
                                    user_input: str, page: int = 0):
     """Create LINE Flex carousel for search results with YouTube Music prioritized on first page."""
 
+    # Filter out results that don't have channel or duration
+    def is_valid_result(result):
+        return (result.get('channel') and
+                result.get('duration') and
+                result.get('title') and
+                result.get('id'))
+
+    # Filter both result sets
+    filtered_youtube_results = [r for r in youtube_results if is_valid_result(r)]
+    filtered_youtube_music_results = [r for r in youtube_music_results if is_valid_result(r)]
+
     # Combine results with YouTube Music first on page 0
-    if page == 0 and youtube_music_results:
+    if page == 0 and filtered_youtube_music_results:
         # First result from YouTube Music, then YouTube results
-        combined_results = youtube_music_results[:1] + youtube_results
+        combined_results = filtered_youtube_music_results[:1] + filtered_youtube_results
     else:
         # For other pages, just use YouTube results
-        combined_results = youtube_results
+        combined_results = filtered_youtube_results
 
     start_index = page * 4
     end_index = start_index + 4
@@ -312,13 +323,13 @@ def create_search_results_carousel(youtube_results: list, youtube_music_results:
     # Add result bubbles
     for i, result in enumerate(current_results):
         video_id = result.get('id')
-        title = result.get('title', 'Unknown Title')
-        channel = result.get('channel', 'Unknown')
-        duration = result.get('duration', 'N/A')
+        title = result.get('title')
+        channel = result.get('channel')
+        duration = result.get('duration')
         thumbnail = result.get('thumbnail', '')
 
         display_title = title
-        if page == 0 and i == 0 and youtube_music_results:
+        if page == 0 and i == 0 and filtered_youtube_music_results:
             display_title = "🎵 " + title  # Music note for YouTube Music
 
         # Estimate postback data length
