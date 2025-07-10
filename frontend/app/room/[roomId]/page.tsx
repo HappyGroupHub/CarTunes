@@ -949,7 +949,10 @@ export default function RoomPage() {
             const response = await fetch(API_ENDPOINTS.ROOM(roomId))
             if (!response.ok) {
                 setErrorMessage("不存在的房間")
+                setModalButtonText("返回首頁")
+                setModalAction(() => () => window.location.href = "/")
                 setShowErrorModal(true)
+                setIsLoading(false)
                 return
             }
 
@@ -988,8 +991,11 @@ export default function RoomPage() {
                 )
             }
         } catch (err) {
-            setErrorMessage("不存在的房間")
+            setErrorMessage("連線失敗，請檢查網路連線後重新整理頁面")
+            setModalButtonText("重新載入頁面")
+            setModalAction(() => () => window.location.reload())
             setShowErrorModal(true)
+            setIsLoading(false)
         }
     }
 
@@ -1378,7 +1384,27 @@ export default function RoomPage() {
         )
     }
 
-    if (!room) return null
+    if (!room) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600">
+                <Modal
+                    isOpen={showErrorModal}
+                    onClose={modalAction}
+                    title="提示"
+                >
+                    <div className="text-center py-2">
+                        <div
+                            className="text-gray-700 mb-4"
+                            dangerouslySetInnerHTML={{__html: errorMessage}}
+                        />
+                        <Button onClick={modalAction} className="w-full">
+                            {modalButtonText}
+                        </Button>
+                    </div>
+                </Modal>
+            </div>
+        )
+    }
 
     const progress = room.current_song ? (currentTime / room.current_song.duration) * 100 : 0
 
