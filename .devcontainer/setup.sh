@@ -1,14 +1,15 @@
 #!/bin/bash
 set -e
-chmod +x .devcontainer/setup.sh
-sudo apt-get update
+
+# Add uv to PATH for this session
+export PATH="$HOME/.cargo/bin:$PATH"
 
 # install ffmpeg package
 sudo apt-get install -y ffmpeg
 
 # set up backend env
 cd backend
-python3 -m pip install -r requirements.txt
+uv sync
 
 # set up frontend env
 cd ../frontend

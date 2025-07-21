@@ -22,7 +22,11 @@
 		},
         "ghcr.io/devcontainers/features/python:1": {
             "version": "3.13"
-        }       
+        },
+        "ghcr.io/devcontainers-contrib/features/curl-apt-get:1": {},
+        "ghcr.io/meaningful-ooo/devcontainer-features/fish:1": {
+            "fisher": false
+        }
 	},
 	"customizations": {
 		"vscode": {
@@ -34,6 +38,7 @@
                 "streetsidesoftware.code-spell-checker"
             ]
 		}
-	},	
-	"postCreateCommand": "chmod +x .devcontainer/setup.sh && ./.devcontainer/setup.sh"
+	},
+	"postStartCommand": "echo 'export PATH=\"$HOME/.cargo/bin:$PATH\"' >> ~/.bashrc",
+    "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && chmod +x .devcontainer/setup.sh && ./.devcontainer/setup.sh"
 }
