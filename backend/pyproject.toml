@@ -1,0 +1,17 @@
+[project]
+name = "CarTunes"
+version = "0.1.0"
+description = "A collaborative music queue for road trips. Submit song via LINE and enjoy vibes with web-based player"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi~=0.115.12",
+    "httpx~=0.28.1",
+    "line-bot-sdk~=3.17.1",
+    "pydantic~=2.11.5",
+    "pyyaml~=6.0.2",
+    "requests~=2.32.3",
+    "uvicorn~=0.34.3",
+    "websockets~=15.0.1",
+    "yt-dlp~=2025.5.22",
+]
