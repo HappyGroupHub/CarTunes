@@ -19,11 +19,12 @@ config = utils.read_config()
 
 
 class RoomManager:
-    def __init__(self):
+    def __init__(self, maximum_room: int = 10):
         self.rooms: Dict[str, Room] = {}
         self.user_rooms: Dict[str, str] = {}  # user_id -> room_id
         self.pause_timers: Dict[str, asyncio.Task] = {}  # room_id -> timer task
         self.cleanup_timers: Dict[str, asyncio.Task] = {}  # room_id -> cleanup timer task
+        self.maximum_room = maximum_room
 
     # ===== Room Creation =====
 
@@ -74,6 +75,9 @@ class RoomManager:
 
         logger.info(f"Room {room_id} created by user {user_id}")
         return room
+
+    def can_create_room(self) -> bool:
+        return len(self.rooms) < self.maximum_room
 
     # ===== Room Information =====
 

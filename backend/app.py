@@ -27,9 +27,9 @@ from websocket_manager import ConnectionManager
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-room_manager = RoomManager()
-ws_manager = ConnectionManager()
 config = utils.read_config()
+room_manager = RoomManager(config['maximum_room'])
+ws_manager = ConnectionManager()
 
 # Dictionary to store the last request time for each room and action, for throttling
 # Used for playback control, skipping, and autoplay toggling
@@ -335,6 +335,9 @@ async def create_room(
     if client_ip != "127.0.0.1":
         raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
 
+    if not room_manager.can_create_room():
+        raise HTTPException(status_code=403, detail="Forbidden: Reached maximum room limit")
+
     room = room_manager.create_room(
         user_id=user_id,
         user_name=user_name
@@ -351,7 +354,6 @@ async def create_room(
         active_users=room.active_connections,
         autoplay=room.autoplay
     )
-
 
 @app.post("/api/room/join", response_model=RoomResponse)
 async def join_room(request_object: Request, request: JoinRoomRequest):

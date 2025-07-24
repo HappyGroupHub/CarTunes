@@ -18,9 +18,6 @@ import utilities as utils
 from innertube.audio_extractor import get_audio_stream_info
 from innertube.search import search_both_concurrent
 from line_extensions.async_webhook import AsyncWebhookHandler
-from room_manager import RoomManager
-
-room_manager = RoomManager()
 
 app = FastAPI()
 origins = ["*"]
@@ -100,7 +97,7 @@ async def create_room_via_api(user_id: str, user_name: str) -> (bool, str | None
     You should check if user_id is already in user_rooms before calling this function.
     This function would link user rich menu if success.
     Returns a tuple (success, room_id) where success is True if room created, False if failed.
-    If failed, room_id would be None.
+    If failed, it will return error reason.
     """
     user_rooms[user_id] = "TEMP"  # Add temporary room entry to prevent spam
     try:
@@ -117,7 +114,7 @@ async def create_room_via_api(user_id: str, user_name: str) -> (bool, str | None
         else:
             print(f"Failed to create room: {response.status_code}")
             del user_rooms[user_id]  # Remove temp user_rooms entry
-            return False, None
+            return False, response.json()['detail']
     except Exception as e:
         print(f"Error creating room: {e}")
         del user_rooms[user_id]  # Remove temp user_rooms entry
@@ -605,7 +602,7 @@ async def handle_message(event):
                     text="您已經在房間中！請先輸入「離開房間」來離開目前的房間")
             else:
                 user_name = (await line_bot_api.get_profile(user_id)).display_name
-                success, room_id = await create_room_via_api(user_id, user_name)
+                success, result = await create_room_via_api(user_id, user_name)
 
                 if success:
                     reply_message = TextMessage(
@@ -615,10 +612,13 @@ async def handle_message(event):
                              f"🎵 想邀請朋友一起聽歌？\n" \
                              f"您現在可以直接分享此訊息給朋友，他們只要將此訊息轉發給本官方帳號，" \
                              f"就能自動加入您的房間與一起同樂！\n\n" \
-                             f"房間代碼：{room_id}\n" \
+                             f"房間代碼：{result}\n" \
                              f"🎶 一起來創造美好的音樂時光！")
                 else:
-                    reply_message = TextMessage(text="建立房間時發生錯誤，請稍後再試。")
+                    if result == "Forbidden: Internal use only":
+                        reply_message = TextMessage(text="建立房間時發生錯誤，請稍後再試。")
+                    if result == "Forbidden: Reached maximum room limit":
+                        reply_message = TextMessage(text="已抵達可建立房間上限，請稍後再試。")
 
             await line_bot_api.reply_message(
                 ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])

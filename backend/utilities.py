@@ -85,6 +85,10 @@ pause_music_after_no_connections: 10
 # Default is 2 hours (120 minutes).
 room_cleanup_after_inactivity: 120
 
+# The maximum room that your server can handle.
+# Default is 10 rooms.
+maximum_room: 10
+
 # The interval for wss to broadcast current song progress to clients, aka the website.
 # In seconds, default is 5 seconds.
 progress_broadcast_interval: 5
@@ -145,6 +149,7 @@ def read_config():
                 'numeric_room_code': data['numeric_room_code'],
                 'pause_music_after_no_connections': data['pause_music_after_no_connections'],
                 'room_cleanup_after_inactivity': data['room_cleanup_after_inactivity'],
+                'maximum_room': data['maximum_room'],
                 'progress_broadcast_interval': data['progress_broadcast_interval'],
                 'action_throttle_seconds': data['action_throttle_seconds'],
                 'bring_to_top_throttle': {
