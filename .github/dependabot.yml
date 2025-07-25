@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: "npm" 
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "npm"
+      - "dependencies"
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "pip"
+      - "dependencies"
