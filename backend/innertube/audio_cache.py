@@ -73,7 +73,6 @@ class AudioCacheManager:
             return cached_path
 
         self.downloading.add(video_id)
-
         try:
             return await self._download_file(video_id)
         finally:
@@ -132,23 +131,26 @@ class AudioCacheManager:
                 if not found_fallback:
                     return None
 
-            # Start to normalize loudness
-            normalized_file = os.path.join(self.cache_dir, f'{video_id}_normalized.mp3')
-            normalization_cmd = [
-                ffmpeg_path, "-y", "-loglevel", "error", "-i",
-                downloaded_file, "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
-                normalized_file
-            ]
+            def _normalize_audio():
+                # Start to normalize loudness
+                normalized_file = os.path.join(self.cache_dir, f'{video_id}_normalized.mp3')
+                normalization_cmd = [
+                    ffmpeg_path, "-y", "-loglevel", "error", "-i",
+                    downloaded_file, "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+                    normalized_file
+                ]
 
-            logger.info(f"Normalizing loudness for {video_id}...")
-            subprocess.run(normalization_cmd, check=True)
+                logger.info(f"Normalizing loudness for {video_id}...")
+                subprocess.run(normalization_cmd, check=True)
 
-            # Replace original with normalized version
-            os.remove(downloaded_file)
-            os.rename(normalized_file, downloaded_file)
-            logger.info(f"Loudness normalized and saved: {downloaded_file}")
+                # Replace original with normalized version
+                os.remove(downloaded_file)
+                os.rename(normalized_file, downloaded_file)
+                logger.info(f"Loudness normalized and saved: {downloaded_file}")
+           
+            await asyncio.to_thread(_normalize_audio)
 
-                # Add to cache with both timestamps
+            # Add to cache with both timestamps
             current_time = datetime.now()
             file_size = os.path.getsize(downloaded_file)
             self.cached_files[video_id] = {
