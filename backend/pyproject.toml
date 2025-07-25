@@ -5,7 +5,7 @@ description = "A collaborative music queue for road trips. Submit song via LINE 
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "fastapi~=0.115.12",
+    "fastapi~=0.116.1",
     "httpx~=0.28.1",
     "line-bot-sdk~=3.17.1",
     "pydantic~=2.11.5",
