@@ -1,7 +1,7 @@
 requests~=2.32.3
 yt-dlp~=2025.5.22
 pydantic~=2.11.5
-fastapi~=0.115.12
+fastapi~=0.116.1
 uvicorn~=0.34.3
 websockets~=15.0.1
 line-bot-sdk~=3.17.1
