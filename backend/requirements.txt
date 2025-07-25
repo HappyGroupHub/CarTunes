@@ -1,4 +1,4 @@
-requests~=2.32.3
+requests~=2.32.4
 yt-dlp~=2025.7.21
 pydantic~=2.11.7
 fastapi~=0.116.1
