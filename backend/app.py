@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 import utilities as utils
-from innertube.audio_cache import audio_cache
+from innertube.audio_cache import AudioCacheManager
 from models import (
     JoinRoomRequest, AddSongRequest, UpdatePlaybackRequest,
     ReorderQueueRequest, RoomResponse, AddSongResponse, QueueResponse, WSMessage, WSMessageType
@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 config = utils.read_config()
 room_manager = RoomManager(config['maximum_room'])
 ws_manager = ConnectionManager()
+audio_cache_manager = AudioCacheManager(config['max_cache_size_mb'], config['cache_duration_hours'], 
+                                        config['audio_quality_kbps'], config['loudness_normalization'])
 
 # Dictionary to store the last request time for each room and action, for throttling
 # Used for playback control, skipping, and autoplay toggling
@@ -65,7 +67,7 @@ async def lifespan(app: FastAPI):
         task.cancel()
 
     # Clean up audio cache
-    audio_cache.cleanup_all()
+    audio_cache_manager.cleanup_all()
 
 
 # Initialize FastAPI app
@@ -167,10 +169,10 @@ async def get_audio_status(video_id: str, room_id: str = Query(None)):
     """Get the download status of an audio file"""
     logger.info(f"Status check requested for video {video_id}, room {room_id}")
 
-    if audio_cache.is_downloading(video_id):
+    if audio_cache_manager.is_downloading(video_id):
         logger.info(f"Video {video_id} is downloading")
         return {"status": "downloading", "is_downloading": True}
-    elif audio_cache.get_cache_path(video_id):
+    elif audio_cache_manager.get_cache_path(video_id):
         # If room_id provided and audio is ready, start playback
         logger.info(f"Video {video_id} is ready")
         if room_id:
@@ -196,7 +198,7 @@ async def stream_audio(video_id: str):
     """Stream downloaded audio file"""
     try:
         # Check if file is already cached
-        cached_path = audio_cache.get_cache_path(video_id)
+        cached_path = audio_cache_manager.get_cache_path(video_id)
 
         if cached_path:
             # Determine media type based on file extension
@@ -226,7 +228,7 @@ async def stream_audio(video_id: str):
 
         # Download if not cached
         logger.info(f"Downloading audio for {video_id}")
-        downloaded_path = await audio_cache.download_audio(video_id, priority=True)
+        downloaded_path = await audio_cache_manager.download_audio(video_id, priority=True)
 
         if not downloaded_path:
             # Find and remove the failed song from any room
@@ -309,7 +311,7 @@ async def audio_preloader():
                         upcoming_video_ids.extend(autoplay_video_ids)
 
                     if upcoming_video_ids:
-                        await audio_cache.preload_queue_songs(upcoming_video_ids)
+                        await audio_cache_manager.preload_queue_songs(upcoming_video_ids)
 
         except Exception as e:
             logger.error(f"Error in audio preloader: {e}")
@@ -525,7 +527,7 @@ async def add_song_to_queue(room_id: str, request: AddSongRequest, user_id: str 
         raise HTTPException(status_code=400, detail="Invalid song data")
 
     # Refresh cache timer if song already exists in cache
-    audio_cache.refresh_cache_timer(request.video_id)
+    audio_cache_manager.refresh_cache_timer(request.video_id)
 
     # Check if this will be the first song BEFORE adding
     was_empty = not room.current_song and not room.playback_state.is_playing
@@ -564,7 +566,7 @@ async def add_song_to_queue(room_id: str, request: AddSongRequest, user_id: str 
     upcoming_video_ids = [s.video_id for s in room.queue[:5]]
     if room.current_song:
         upcoming_video_ids.insert(0, room.current_song.video_id)
-    asyncio.create_task(audio_cache.preload_queue_songs(upcoming_video_ids))
+    asyncio.create_task(audio_cache_manager.preload_queue_songs(upcoming_video_ids))
 
     return AddSongResponse(
         message="Song added to queue",

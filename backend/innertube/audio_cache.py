@@ -13,21 +13,20 @@ logger = logging.getLogger(__name__)
 
 
 class AudioCacheManager:
-    def __init__(self):
-        import utilities as utils
-        config = utils.read_config()
-
+    def __init__(self, max_cache_size_mb: int, cache_duration_hours: int, audio_quality_kbps: int, loudness_normalization: bool):
         self.cache_dir = tempfile.mkdtemp(prefix="cartunes_audio_")
         self.cached_files: Dict[
             str, dict] = {}  # video_id -> {path, downloaded_at, last_ordered_at, size}
         self.downloading: Set[str] = set()  # Track currently downloading videos
-        self.max_cache_size_mb = config['max_cache_size_mb']
-        self.cache_duration = timedelta(hours=config['cache_duration_hours'])
-        self.audio_quality = str(config['audio_quality_kbps'])
+        self.max_cache_size_mb = max_cache_size_mb
+        self.cache_duration = timedelta(hours=cache_duration_hours)
+        self.audio_quality = str(audio_quality_kbps)
+        self.loudness_normalization = loudness_normalization
         logger.info(f"Audio cache initialized at: {self.cache_dir}")
         logger.info(
             f"Cache settings: {self.max_cache_size_mb}MB max, "
-            f"{config['cache_duration_hours']}h duration, {self.audio_quality}kbps quality")
+            f"{cache_duration_hours}h duration, {self.audio_quality}kbps quality, "
+            f"Normalize Audio: {loudness_normalization}")
 
     def get_cache_path(self, video_id: str) -> Optional[str]:
         """Get cached file path if exists and valid"""
@@ -147,8 +146,9 @@ class AudioCacheManager:
                 os.remove(downloaded_file)
                 os.rename(normalized_file, downloaded_file)
                 logger.info(f"Loudness normalized and saved: {downloaded_file}")
-           
-            await asyncio.to_thread(_normalize_audio)
+
+            if self.loudness_normalization:
+                await asyncio.to_thread(_normalize_audio)
 
             # Add to cache with both timestamps
             current_time = datetime.now()
@@ -229,6 +229,3 @@ class AudioCacheManager:
                 logger.info(f"Cleaned up audio cache directory: {self.cache_dir}")
         except Exception as e:
             logger.error(f"Error cleaning up cache directory: {e}")
-
-
-audio_cache = AudioCacheManager()
