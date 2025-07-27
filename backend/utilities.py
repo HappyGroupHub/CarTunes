@@ -68,6 +68,10 @@ autoplay_search_engine: 'youtube_music'
 hl_param: 'zh-TW'
 gl_param: 'TW'
 
+# Normalize audio loudness to keep all songs at a consistent level.
+# Enabling this may increase resource usage and cause longer processing delays.
+# This only affects songs retrieved from YouTube, as they may have inconsistent audio levels.
+loudness_normalization: False
 
 # --- Rooms Broadcast/Cleanup/Throttle Settings ---
 
@@ -146,6 +150,7 @@ def read_config():
                 'autoplay_search_engine': data['autoplay_search_engine'],
                 'hl_param': data['hl_param'],
                 'gl_param': data['gl_param'],
+                'loudness_normalization': data['loudness_normalization'],
                 'numeric_room_code': data['numeric_room_code'],
                 'pause_music_after_no_connections': data['pause_music_after_no_connections'],
                 'room_cleanup_after_inactivity': data['room_cleanup_after_inactivity'],
