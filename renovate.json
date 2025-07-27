@@ -1,0 +1,41 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:base"
+  ],
+  "schedule": [
+    "on monday"
+  ],
+  "packageRules": [
+    {
+      "matchPackagePatterns": ["*"],
+      "semanticCommitType": "chore",
+      "addLabels": ["dependencies"]
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "Frontend Dependencies",
+      "addLabels": ["npm"]
+    },
+    {
+      "matchManagers": ["pip-compile"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "Backend Dependencies",
+      "addLabels": ["pip"],
+      "postUpgradeTasks": {
+        "commands": [
+          "uv pip compile backend/pyproject.toml -o backend/requirements.txt"
+        ],
+        "fileFilters": [
+          "backend/requirements.txt"
+        ],
+        "executionMode": "update"
+      }
+    },
+    {
+      "matchFileNames": ["backend/requirements.txt"],
+      "enabled": false
+    }
+  ]
+}
