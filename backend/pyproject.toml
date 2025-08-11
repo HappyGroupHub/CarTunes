@@ -13,5 +13,5 @@ dependencies = [
     "requests~=2.32.4",
     "uvicorn~=0.35.0",
     "websockets~=15.0.1",
-    "yt-dlp~=2025.7.21",
+    "yt-dlp~=2025.8.11",
 ]
