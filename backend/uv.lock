@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13"
 
 [[package]]
@@ -116,13 +116,13 @@ dependencies = [
 requires-dist = [
     { name = "fastapi", specifier = "~=0.116.1" },
     { name = "httpx", specifier = "~=0.28.1" },
-    { name = "line-bot-sdk", specifier = "~=3.17.1" },
+    { name = "line-bot-sdk", specifier = "~=3.18.0" },
     { name = "pydantic", specifier = "~=2.11.7" },
     { name = "pyyaml", specifier = "~=6.0.2" },
     { name = "requests", specifier = "~=2.32.4" },
     { name = "uvicorn", specifier = "~=0.35.0" },
     { name = "websockets", specifier = "~=15.0.1" },
-    { name = "yt-dlp", specifier = "~=2025.7.21" },
+    { name = "yt-dlp", specifier = "~=2025.8.11" },
 ]
 
 [[package]]
@@ -303,7 +303,7 @@ wheels = [
 
 [[package]]
 name = "line-bot-sdk"
-version = "3.17.1"
+version = "3.18.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aenum" },
@@ -315,9 +315,9 @@ dependencies = [
     { name = "requests" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/08/ae/7be821f6d286ac4f0497caa3e4ff699f4e99ab405adf2044a5b6bc83cc71/line_bot_sdk-3.17.1.tar.gz", hash = "sha256:b4b1300fa0661dac4c98e3df9467f249b16c7f767f226614c099a48346e135ae", size = 456527, upload-time = "2025-04-25T03:30:46.52Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/dd/59/f6fafd28f95a570e693c179e93a700545d715c84cccf24b921c862e6b575/line_bot_sdk-3.18.0.tar.gz", hash = "sha256:f8f66528127be866ccd6b8802185f94f6154484103490df70b676033ec0da2bf", size = 469984, upload-time = "2025-08-06T09:32:35.26Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d4/32/ed6471753080e41d61156212d0032affda2d6d615b8933d2bafc65347e14/line_bot_sdk-3.17.1-py2.py3-none-any.whl", hash = "sha256:74ac0aa0a1f67ad51661f95843b5a090dad0cb178d14ae28b7fa81af35315ab7", size = 776059, upload-time = "2025-04-25T03:30:44.224Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/e7/0d775788f2ce4ff06c701ecb965c5ceb21424f765786b939adb983e2f0cc/line_bot_sdk-3.18.0-py2.py3-none-any.whl", hash = "sha256:d5715d81bf2f4d6ddd3495c4b4617186e4054c4f27b76fece8dba053002e95ed", size = 824917, upload-time = "2025-08-06T09:32:32.868Z" },
 ]
 
 [[package]]
@@ -667,9 +667,9 @@ wheels = [
 
 [[package]]
 name = "yt-dlp"
-version = "2025.7.21"
+version = "2025.8.11"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/7e/3a/343f7a0024ddd4c30f150e8d8f57fd7b924846f97d99fc0dcd75ea8d2773/yt_dlp-2025.7.21.tar.gz", hash = "sha256:46fbb53eab1afbe184c45b4c17e9a6eba614be680e4c09de58b782629d0d7f43", size = 3050219, upload-time = "2025-07-21T23:59:03.826Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/80/72/de4a7f9bbfef886c7f0790b8246585310f155e4a6589dd38d846efa932e9/yt_dlp-2025.8.11.tar.gz", hash = "sha256:dc7c120a367fe55e0f711613dc80ea29d3a4e0ed8d66104cebfbe3d36e81fdfc", size = 3045769, upload-time = "2025-08-11T04:01:51.749Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e8/2f/abe59a3204c749fed494849ea29176bcefa186ec8898def9e43f649ddbcf/yt_dlp-2025.7.21-py3-none-any.whl", hash = "sha256:d7aa2b53f9b2f35453346360f41811a0dad1e956e70b35a4ae95039d4d815d15", size = 3288681, upload-time = "2025-07-21T23:59:01.788Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/dc/4400fb3e8bccdbd0f6ecf36a8a9aea3290ad98a1c9d19664a5c92d7b2e5d/yt_dlp-2025.8.11-py3-none-any.whl", hash = "sha256:f115d2246c1ab5737772bd4845be057eebb91c0d95125a7577d92288351df7d0", size = 3281677, upload-time = "2025-08-11T04:01:48.756Z" },
 ]
