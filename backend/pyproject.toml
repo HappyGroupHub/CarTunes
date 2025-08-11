@@ -7,7 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi~=0.116.1",
     "httpx~=0.28.1",
-    "line-bot-sdk~=3.17.1",
+    "line-bot-sdk~=3.18.0",
     "pydantic~=2.11.7",
     "pyyaml~=6.0.2",
     "requests~=2.32.4",
