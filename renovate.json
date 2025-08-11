@@ -1,11 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:base"
-  ],
-  "schedule": [
-    "on monday"
-  ],
+  "extends": ["config:base"],
+  "schedule": ["on monday"],
   "packageRules": [
     {
       "matchPackagePatterns": ["*"],
@@ -16,22 +12,26 @@
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "groupName": "Frontend Dependencies",
-      "addLabels": ["npm"]
+      "addLabels": ["dependencies", "npm"]
     },
     {
-      "matchManagers": ["pip-compile"],
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "groupName": "Backend Dependencies",
-      "addLabels": ["pip"],
-      "postUpgradeTasks": {
-        "commands": [
-          "uv pip compile backend/pyproject.toml -o backend/requirements.txt"
-        ],
-        "fileFilters": [
-          "backend/requirements.txt"
-        ],
-        "executionMode": "update"
-      }
+      "matchManagers": ["pep621"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Backend Python Dependencies (Minor/Patch)",
+      "addLabels": ["dependencies", "uv"],
+      "automerge": false
+    },
+    {
+      "matchManagers": ["pep621"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "Backend Python Dependencies (Major)",
+      "addLabels": ["dependencies", "uv"]
+    },
+    {
+      "matchDepNames": ["python"],
+      "groupName": null,
+      "dependencyDashboardApproval": true,
+      "addLabels": ["dependencies"]
     },
     {
       "matchFileNames": ["backend/requirements.txt"],
