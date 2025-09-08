@@ -1,0 +1,103 @@
+# ++--------------------------------++
+# | CarTunes       (AGPL-3.0 LICENSE)|
+# | Made by LD                v0.1.0 |
+# ++--------------------------------++
+
+# Line Channel Access Token & Secret
+# You can get it from https://developers.line.biz/console/
+line_channel_access_token: ''
+line_channel_secret: ''
+
+# Backend server configuration, aka the webhook server for LINE and API endpoints for websites.
+# If you change port, make sure to change the port in your reverse proxy as well.
+api_endpoints_port: 5000
+line_webhook_port: 5001
+
+# Frontend website configuration, where users can interact with the music player.
+# This is needed so user can access the website with LINE rich menu.
+frontend_url: 'https://cartunes.playfuni.net'
+
+
+# --- Song Streaming/Caching Settings ---
+
+# Seconds of delay before the song starts playing.
+# This is to ensure the song is fully loaded on frontend before playing.
+# Default is 1 second.
+song_start_delay_seconds: 1
+
+# Song length limit in seconds. Default is 30 minutes (1800 seconds).
+# Shows an error if the song exceeds this limit.
+song_length_limit: 1800
+
+# Audio bitrate for downloaded songs (lower = smaller files, lower quality)
+# Default is 96 kbps for good balance of quality and file size.
+audio_quality_kbps: 96
+
+# Song cache settings
+# Maximum cache folder size in MB. Default is 300MB.
+max_cache_size_mb: 300
+
+# Cache duration in hours. Songs will be deleted after this time since last order.
+# Default is 1 hour.
+cache_duration_hours: 1
+
+# Autoplay the recommended next song if there's no more song in the queue.
+# Default is true, which means as the room is created, this option is enabled.
+# User can always disable or enable it with the frontend website.
+autoplay_default: true
+
+# Recommended next song search engine, two options:
+# 'youtube_music' - Uses YouTube Music to find the next song, might be more random.
+# 'youtube' - Uses YouTube to find the next song, might be more relevant but stuck to the same artist.
+autoplay_search_engine: 'youtube_music'
+
+# Search and recommendations API localization parameters.
+# hl means Host Language, gl means Geolocation.
+hl_param: 'zh-TW'
+gl_param: 'TW'
+
+# Normalize audio loudness to keep all songs at a consistent level.
+# Enabling this may increase resource usage and cause longer processing delays.
+# This only affects songs retrieved from YouTube, as they may have inconsistent audio levels.
+loudness_normalization: False
+
+# --- Rooms Broadcast/Cleanup/Throttle Settings ---
+
+# Room's code generation logic, 6-digit code.
+# Default is false, using random alphanumeric code, For example, ABC123.
+# If set to true, it will only use a numeric code, For example, 123456.
+numeric_room_code: false
+
+# Pause music if no active websocket connections for this many seconds.
+# Default is 10 seconds.
+pause_music_after_no_connections: 10
+
+# Rooms would be automatically deleted after this many minutes of inactivity.
+# Inactivity definition: No active websocket connections, aka noone is browsing the website
+# Default is 2 hours (120 minutes).
+room_cleanup_after_inactivity: 120
+
+# The maximum room that your server can handle.
+# Default is 10 rooms.
+maximum_room: 10
+
+# The interval for wss to broadcast current song progress to clients, aka the website.
+# In seconds, default is 5 seconds.
+progress_broadcast_interval: 5
+
+# Throttle seconds for room's play/pause/next/autoplay-toggle actions.
+# This is used to prevent same action in the same room being sent too frequently.
+# Default is 1 second.
+action_throttle_seconds: 1
+
+# Throttle settings for user clicking BringSongToTop button.
+# Users can bring songs to top up to 2 times within any 5-second window by default.
+# This is counted per user without affecting other users.
+bring_to_top_throttle:
+  max_requests: 2
+  window_seconds: 5
+
+# LINE message throttling settings, used to prevent one user from spamming messages.
+# Specifically designed to solve rich menu buttons spam. (But still applied to all messages)
+# Default is 0.8 seconds.
+line_message_throttle_seconds: 0.8
