@@ -16,7 +16,7 @@
     <a href="#繁體中文">繁體中文</a>
   </h4>
 
-<h3>🎉 Try it now! Add our [LINE Bot](https://line.me/R/ti/p/@987bvapz) 🎉</h3>
+### 🎉 Try it now! Add our [LINE Bot](https://line.me/R/ti/p/@987bvapz) 🎉
 
 </div>
 
