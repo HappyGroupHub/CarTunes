@@ -6,7 +6,7 @@
 
 ### Real-time Collaborative Music Queue for Road Trips / Parties
 
-[![Total Downloads](https://img.shields.io/github/downloads/HappyGroupHub/CarTunes/total?style=for-the-badge)](https://github.com/HappyGroupHub/CarTunes/releases)
+[![LINE Users](https://img.shields.io/endpoint?style=for-the-badge&url=https://linebot-followers-badge.playfuni.net/api/followers?account=CarTunes)](https://line.me/R/ti/p/@987bvapz)
 [![Current Version](https://img.shields.io/github/v/release/HappyGroupHub/CarTunes?style=for-the-badge)](https://github.com/HappyGroupHub/CarTunes/releases)
 [![License](https://img.shields.io/github/license/HappyGroupHub/CarTunes?style=for-the-badge)](https://github.com/HappyGroupHub/CarTunes/blob/master/LICENSE)
 
@@ -224,7 +224,9 @@ We welcome contributions! Please feel free to submit pull requests or open issue
 
 ## ⚠️ Disclaimer
 
-This project is for educational and personal use only. Users are responsible for complying with all applicable laws and terms of service when using CarTunes. The developers are not liable for any misuse of this software or copyright infringement. Please respect intellectual property rights and use this software responsibly.
+This project is for educational and personal use only. Users are responsible for complying with all applicable laws and
+terms of service when using CarTunes. The developers are not liable for any misuse of this software or copyright
+infringement. Please respect intellectual property rights and use this software responsibly.
 
 For full disclaimer, see [DISCLAIMER.md](DISCLAIMER.md).
 
@@ -238,7 +240,8 @@ This project is licensed under the AGPL-3.0 License - see the [LICENSE](LICENSE)
 
 ## 🚗 什麼是 CarTunes？
 
-CarTunes 是一個即時協作音樂播放系統，專為公路旅行、派對或任何團體聆聽體驗而設計。使用者可以透過 LINE 機器人和網頁介面控制播放清單、新增歌曲和管理播放 - 全部即時同步。
+CarTunes 是一個即時協作音樂播放系統，專為公路旅行、派對或任何團體聆聽體驗而設計。使用者可以透過 LINE
+機器人和網頁介面控制播放清單、新增歌曲和管理播放 - 全部即時同步。
 
 ### ✨ 主要功能
 
