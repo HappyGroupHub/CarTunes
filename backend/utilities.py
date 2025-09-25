@@ -73,6 +73,10 @@ gl_param: 'TW'
 # This only affects songs retrieved from YouTube, as they may have inconsistent audio levels.
 loudness_normalization: False
 
+# DEBUG - show download/normalization time in the logs.
+# This is useful to check the host's internet and processing speed.
+show_download_time: False
+
 # --- Rooms Broadcast/Cleanup/Throttle Settings ---
 
 # Room's code generation logic, 6-digit code.
@@ -151,6 +155,7 @@ def read_config():
                 'hl_param': data['hl_param'],
                 'gl_param': data['gl_param'],
                 'loudness_normalization': data['loudness_normalization'],
+                'show_download_time': data['show_download_time'],
                 'numeric_room_code': data['numeric_room_code'],
                 'pause_music_after_no_connections': data['pause_music_after_no_connections'],
                 'room_cleanup_after_inactivity': data['room_cleanup_after_inactivity'],

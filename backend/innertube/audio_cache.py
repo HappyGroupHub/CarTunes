@@ -2,18 +2,25 @@ import asyncio
 import logging
 import os
 import shutil
+import subprocess
 import tempfile
 from datetime import datetime, timedelta
 from typing import Dict, Set, Optional
-import subprocess
 
 import yt_dlp
 
+import utilities as utils
+
 logger = logging.getLogger(__name__)
+FFMPEG_PATH = os.environ.get('FFMPEG_PATH')
+
+config = utils.read_config()
+show_download_time = config.get('show_download_time', False)
 
 
 class AudioCacheManager:
-    def __init__(self, max_cache_size_mb: int, cache_duration_hours: int, audio_quality_kbps: int, loudness_normalization: bool):
+    def __init__(self, max_cache_size_mb: int, cache_duration_hours: int, audio_quality_kbps: int,
+                 loudness_normalization: bool):
         self.cache_dir = tempfile.mkdtemp(prefix="cartunes_audio_")
         self.cached_files: Dict[
             str, dict] = {}  # video_id -> {path, downloaded_at, last_ordered_at, size}
@@ -82,34 +89,38 @@ class AudioCacheManager:
         try:
             # Clean cache if needed
             await self._cleanup_cache()
-
             url = f'https://www.youtube.com/watch?v={video_id}'
-            ffmpeg_path = shutil.which('ffmpeg')
+
+            # Log start time
+            start_time = asyncio.get_event_loop().time() if show_download_time else None
 
             # Configure yt-dlp to extract audio and convert to MP3 using ffmpeg
-            if ffmpeg_path:
-                logger.warning(f"Found ffmpeg at: {ffmpeg_path}")
-                ydl_opts = {
-                    'format': 'bestaudio/best',  # Select the best audio format
-                    'postprocessors': [{
-                        'key': 'FFmpegExtractAudio',
-                        'preferredcodec': 'mp3',  # Convert to MP3
-                        'preferredquality': self.audio_quality,  # Use configurable quality
-                    }],
-                    'outtmpl': os.path.join(self.cache_dir, f'{video_id}.%(ext)s'),
-                    'quiet': True,
-                    'no_warnings': True,
-                    'ffmpeg_location': ffmpeg_path
-                }
-            else:
-                logger.warning(f"ffmpeg not found in PATH, using yt-dlp defaults.")
+            ydl_opts = {
+                'format': 'bestaudio/best',  # Select the best audio format
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',  # Convert to MP3
+                    'preferredquality': self.audio_quality,  # Use configurable quality
+                }],
+                'outtmpl': os.path.join(self.cache_dir, f'{video_id}.%(ext)s'),
+                'quiet': True,
+                'no_warnings': True,
+                'ffmpeg_location': FFMPEG_PATH
+            }
 
             def download_sync():
                 # This function runs in a separate thread to avoid blocking
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.extract_info(url, download=True)
+                    info = ydl.extract_info(url, download=True)
+                    # Return the duration from the extracted info
+                    return info.get('duration', 0)
 
-            await asyncio.to_thread(download_sync)
+            # Download and get duration
+            duration = await asyncio.to_thread(download_sync)
+            # Calculate download duration
+            download_time = asyncio.get_event_loop().time() - start_time if (
+                show_download_time) else None
+
             # The output file will now always be .mp3 due to postprocessor
             downloaded_file = os.path.join(self.cache_dir, f'{video_id}.mp3')
 
@@ -130,11 +141,13 @@ class AudioCacheManager:
                 if not found_fallback:
                     return None
 
+            normalize_start = asyncio.get_event_loop().time() if show_download_time else None
+
             def _normalize_audio():
                 # Start to normalize loudness
                 normalized_file = os.path.join(self.cache_dir, f'{video_id}_normalized.mp3')
                 normalization_cmd = [
-                    ffmpeg_path, "-y", "-loglevel", "error", "-i",
+                    FFMPEG_PATH, "-y", "-loglevel", "error", "-i",
                     downloaded_file, "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
                     normalized_file
                 ]
@@ -149,6 +162,21 @@ class AudioCacheManager:
 
             if self.loudness_normalization:
                 await asyncio.to_thread(_normalize_audio)
+                normalize_time = asyncio.get_event_loop().time() - normalize_start if (
+                    show_download_time) else None
+                if show_download_time and duration:
+                    duration_str = f"{duration // 60}:{duration % 60:02d}"
+                    logger.info(
+                        f"{video_id} ({duration_str}) - took {download_time:.2f}/"
+                        f"{normalize_time:.2f} sec to download and normalize")
+                else:
+                    logger.info(f"Audio downloaded and normalized for {video_id}")
+            elif show_download_time and duration:
+                duration_str = f"{duration // 60}:{duration % 60:02d}"
+                logger.info(
+                    f"{video_id} ({duration_str}) - took {download_time:.2f} sec to download")
+            else:
+                logger.info(f"Audio downloaded for {video_id}: {downloaded_file}")
 
             # Add to cache with both timestamps
             current_time = datetime.now()
@@ -160,9 +188,6 @@ class AudioCacheManager:
                 'size': file_size
             }
 
-            logger.info(
-                f"Audio downloaded and converted to MP3 for {video_id}: "
-                f"{downloaded_file} ({file_size} bytes) at {self.audio_quality}kbps")
             return downloaded_file
 
         except Exception as e:

@@ -46,6 +46,17 @@ def run_line_bot():
 
 def main():
     """Main function to start both servers"""
+    # Check for ffmpeg at startup
+    import shutil
+    import os
+    ffmpeg_path = shutil.which('ffmpeg')
+    if not ffmpeg_path:
+        print("❌ ERROR: ffmpeg not found in system PATH!")
+        print("Please install ffmpeg before running CarTunes")
+        sys.exit(1)
+    os.environ['FFMPEG_PATH'] = ffmpeg_path
+    print(f"✅ Found ffmpeg at: {ffmpeg_path}")
+
     config = utils.read_config()
 
     print("Starting CarTunes Backend Services...")
