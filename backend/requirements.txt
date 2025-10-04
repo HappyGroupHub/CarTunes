@@ -94,7 +94,7 @@ urllib3==2.5.0
     # via
     #   line-bot-sdk
     #   requests
-uvicorn==0.36.0
+uvicorn==0.37.0
     # via cartunes
 websockets==15.0.1
     # via cartunes
