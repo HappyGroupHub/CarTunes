@@ -102,5 +102,5 @@ wrapt==1.17.2
     # via deprecated
 yarl==1.20.1
     # via aiohttp
-yt-dlp==2025.9.23
+yt-dlp==2025.9.26
     # via cartunes
