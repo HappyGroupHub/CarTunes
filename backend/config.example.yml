@@ -41,6 +41,10 @@ max_cache_size_mb: 300
 # Default is 1 hour.
 cache_duration_hours: 1
 
+# Maximum number of songs to import from a playlist at once
+# Default is 20 songs to prevent spam and maintain reasonable queue sizes
+max_playlist_songs: 20
+
 # Autoplay the recommended next song if there's no more song in the queue.
 # Default is true, which means as the room is created, this option is enabled.
 # User can always disable or enable it with the frontend website.

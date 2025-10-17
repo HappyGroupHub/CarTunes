@@ -15,6 +15,7 @@ from linebot.v3.messaging import (Configuration, AsyncApiClient, AsyncMessagingA
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
 
 import utilities as utils
+from innertube import audio_extractor
 from innertube.audio_extractor import get_audio_stream_info
 from innertube.search import search_both_concurrent
 from line_extensions.async_webhook import AsyncWebhookHandler
@@ -40,6 +41,11 @@ user_rooms = {}
 # Cache for storing search results when postback data is too long
 # Key: video_id, Value: search result data
 postback_cache: Dict[str, Dict[str, Any]] = {}
+
+# Cache for storing playlist URLs temporarily
+# Key: user_id + "_" + playlist_id
+# Value: dict with 'url', 'video_id' (optional), 'timestamp'
+playlist_cache: Dict[str, Dict[str, Any]] = {}
 
 # Song length limit in minutes
 song_len_min = config['song_length_limit'] // 60
@@ -486,6 +492,170 @@ def create_search_results_carousel(youtube_results: list, youtube_music_results:
     return FlexMessage(alt_text="搜尋結果", contents=FlexContainer.from_dict(carousel))
 
 
+def create_playlist_confirmation_carousel(playlist_info: dict, valid_songs: list,
+                                          current_video_id: str | None,
+                                          playlist_id: str, max_songs: int) -> FlexMessage:
+    """Create a flex message for playlist import confirmation."""
+
+    # Calculate total duration
+    total_duration = sum(song.get('duration', 0) for song in valid_songs)
+    duration_text = f"{total_duration // 60} 分 {total_duration % 60} 秒"
+
+    # Prepare songs preview (show first 5)
+    preview_songs = []
+    for i, song in enumerate(valid_songs[:5], 1):
+        duration = song.get('duration', 0)
+        duration_str = f"{duration // 60}:{duration % 60:02d}" if duration else "未知"
+
+        # Add star emoji if this is the current video
+        is_current = song['video_id'] == current_video_id
+        song_text = f"{'⭐ ' if is_current else ''}{i}. {song['title'][:30]}... ({duration_str})"
+
+        preview_songs.append({
+            "type": "text",
+            "text": song_text,
+            "size": "sm",
+            "color": "#555555",
+            "wrap": True,
+            "margin": "sm"
+        })
+
+    # Add "and X more..." if there are more songs
+    if len(valid_songs) > 5:
+        preview_songs.append({
+            "type": "text",
+            "text": f"... 還有 {len(valid_songs) - 5} 首歌曲",
+            "size": "sm",
+            "color": "#999999",
+            "margin": "sm"
+        })
+
+    bubble = {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🎵 發現播放清單",
+                    "weight": "bold",
+                    "size": "lg",
+                    "color": "#FFFFFF"
+                }
+            ],
+            "backgroundColor": "#FF6B6B",
+            "paddingAll": "15px"
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": playlist_info['title'][:50],
+                    "weight": "bold",
+                    "size": "md",
+                    "wrap": True,
+                    "margin": "md"
+                },
+                {
+                    "type": "separator",
+                    "margin": "md"
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "總歌曲數：",
+                            "size": "sm",
+                            "color": "#555555",
+                            "flex": 0
+                        },
+                        {
+                            "type": "text",
+                            "text": f"{len(valid_songs)} 首",
+                            "size": "sm",
+                            "color": "#111111",
+                            "flex": 0
+                        }
+                    ],
+                    "margin": "md"
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "總時長：",
+                            "size": "sm",
+                            "color": "#555555",
+                            "flex": 0
+                        },
+                        {
+                            "type": "text",
+                            "text": duration_text,
+                            "size": "sm",
+                            "color": "#111111",
+                            "flex": 0
+                        }
+                    ],
+                    "margin": "sm"
+                },
+                {
+                    "type": "separator",
+                    "margin": "md"
+                },
+                {
+                    "type": "text",
+                    "text": "歌曲預覽：",
+                    "size": "sm",
+                    "color": "#555555",
+                    "margin": "md"
+                },
+                *preview_songs
+            ],
+            "spacing": "sm",
+            "paddingAll": "13px"
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "action": {
+                        "type": "postback",
+                        "label": f"新增全部 ({min(len(valid_songs), max_songs)} 首)",
+                        "data": f"add_playlist:all|{playlist_id}"
+                    },
+                    "color": "#FF6B6B"
+                },
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "action": {
+                        "type": "postback",
+                        "label": "僅新增當前歌曲" if current_video_id else "取消",
+                        "data": f"add_playlist:single|{playlist_id}|{current_video_id}" if current_video_id else "cancel"
+                    },
+                    "margin": "sm"
+                }
+            ]
+        }
+    }
+
+    return FlexMessage(
+        alt_text=f"播放清單：{playlist_info['title']} ({len(valid_songs)} 首歌)",
+        contents=FlexContainer.from_dict(bubble)
+    )
+
+
 @app.post("/callback")
 async def callback(request: Request):
     """Callback function for line webhook."""
@@ -683,7 +853,56 @@ async def handle_message(event):
                 )
                 return
 
-            video_id = utils.extract_video_id_from_url(message_received)
+            # Extract both video ID and playlist ID
+            video_id, playlist_id = utils.extract_video_and_playlist_from_url(message_received)
+
+            if playlist_id:
+                # Store playlist URL in cache for later use
+                playlist_cache[f"{user_id}_{playlist_id}"] = {
+                    'url': message_received,
+                    'video_id': video_id,  # Might be None if it's just a playlist URL
+                    'timestamp': time.time()
+                }
+
+                # Fetch playlist info
+                max_songs = config.get('max_playlist_songs', 20)
+                playlist_info = await audio_extractor.get_playlist_info(playlist_id, max_songs)
+
+                if not playlist_info or not playlist_info['songs']:
+                    reply_message = TextMessage(text="❌ 無法取得播放清單資訊，請確認連結是否正確！")
+                    await line_bot_api.reply_message(
+                        ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                    )
+                    return
+
+                # Filter songs by duration limit and track counts
+                valid_songs = []
+                for song in playlist_info['songs']:
+                    duration_seconds = song.get('duration', 0)
+                    if duration_seconds and duration_seconds <= config['song_length_limit']:
+                        valid_songs.append(song)
+
+                # If no valid songs in playlist
+                if not valid_songs:
+                    reply_message = TextMessage(
+                        text=f"❌ 播放清單中的 {len(playlist_info['songs'])} 首歌曲都超過"
+                             f" {song_len_min} 分鐘限制！\n"
+                             f"請選擇其他播放清單或歌曲"
+                    )
+                    await line_bot_api.reply_message(
+                        ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                    )
+                    return
+
+                # Create confirmation flex message (pass filtered_count for display)
+                carousel_message = create_playlist_confirmation_carousel(playlist_info, valid_songs,
+                                                                         video_id, playlist_id,
+                                                                         max_songs)
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[carousel_message])
+                )
+                return
+
             if not video_id:
                 reply_message = TextMessage(text="❌ 無效的 YouTube 連結！\n"
                                                  "請重新確認連結或直接搜尋關鍵字")
@@ -908,6 +1127,111 @@ async def handle_postback(event):
                             reply_token=event.reply_token, messages=[reply_message]
                         )
                     )
+
+        elif postback_data.startswith("add_playlist:"):
+            parts = postback_data.split("|")
+            action = parts[0].split(":")[1]  # "all" or "single"
+            playlist_id = parts[1]
+
+            # Get cached playlist data
+            cache_key = f"{user_id}_{playlist_id}"
+            if cache_key not in playlist_cache:
+                reply_message = TextMessage(text="❌ 播放清單資料已過期，請重新傳送連結！")
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                )
+                return
+
+            cached_data = playlist_cache[cache_key]
+
+            # Clean up old cache entries (older than 5 minutes)
+            current_time = time.time()
+            for key in list(playlist_cache.keys()):
+                if current_time - playlist_cache[key]['timestamp'] > 300:
+                    del playlist_cache[key]
+
+            room_id = user_rooms[user_id]
+            user_name = (await line_bot_api.get_profile(user_id)).display_name
+
+            if action == "single" and cached_data['video_id']:
+                # Add only the specific video
+                video_id = cached_data['video_id']
+                audio_info = await get_audio_stream_info(video_id)
+
+                if not audio_info:
+                    reply_message = TextMessage(text="❌ 新增歌曲失敗，請稍後再試！")
+                else:
+                    result = await add_song_via_api(
+                        room_id, video_id, user_id, user_name,
+                        title=audio_info.get('title', 'Unknown'),
+                        channel=audio_info.get('channel', 'Unknown'),
+                        duration=audio_info.get('duration', '0'),
+                        thumbnail=audio_info.get('thumbnail', '')
+                    )
+                    if result:
+                        reply_message = TextMessage(
+                            text=f"✅ 已新增歌曲：\n🎵 {result['song']['title']}"
+                        )
+                    else:
+                        reply_message = TextMessage(text="❌ 新增歌曲失敗！")
+
+            elif action == "all":
+                # Fetch playlist info again
+                max_songs = config.get('max_playlist_songs', 20)
+                playlist_info = await audio_extractor.get_playlist_info(playlist_id, max_songs)
+
+                if not playlist_info or not playlist_info['songs']:
+                    reply_message = TextMessage(text="❌ 無法取得播放清單資訊！")
+                    await line_bot_api.reply_message(
+                        ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+                    )
+                    return
+
+                # Add all valid songs
+                added_count = 0
+                failed_count = 0
+
+                for song in playlist_info['songs']:
+                    duration = song.get('duration', 0)
+                    if not utils.check_video_duration(duration):
+                        continue
+
+                    try:
+                        result = await add_song_via_api(
+                            room_id, song['video_id'], user_id, user_name,
+                            title=song['title'],
+                            channel=song['channel'],
+                            duration=duration,  # Pass the integer duration directly
+                            thumbnail=song.get('thumbnail', '')
+                        )
+                        if result:
+                            added_count += 1
+                        else:
+                            failed_count += 1
+                    except Exception as e:
+                        print(f"Error adding song from playlist: {e}")
+                        failed_count += 1
+
+                if added_count > 0:
+                    reply_message = TextMessage(
+                        text=f"✅ 播放清單匯入完成！\n"
+                             f"🎵 成功新增 {added_count} 首歌曲"
+                             + (f"\n⚠️ {failed_count} 首歌曲新增失敗" if failed_count > 0 else "")
+                    )
+                else:
+                    reply_message = TextMessage(text="❌ 無法新增播放清單中的歌曲！")
+
+            else:
+                reply_message = TextMessage(text="已取消")
+
+            # Clean up cache after use
+            if cache_key in playlist_cache:
+                del playlist_cache[cache_key]
+
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+            )
+            return
 
 
 # ===== Rich Menu Manager =====

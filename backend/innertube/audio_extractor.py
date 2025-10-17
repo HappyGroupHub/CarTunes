@@ -67,6 +67,69 @@ async def get_audio_stream_info(video_id: str) -> dict | None:
     return await asyncio.to_thread(extract_sync)
 
 
+async def get_playlist_info(playlist_id: str, max_songs: int = 20) -> dict | None:
+    """Extract playlist information and songs using yt-dlp.
+
+    :param playlist_id: The YouTube playlist ID
+    :param max_songs: Maximum number of songs to fetch from playlist
+    :return: Dict containing playlist info and songs list
+    """
+    url = f'https://www.youtube.com/playlist?list={playlist_id}'
+
+    ydl_opts = {
+        'extract_flat': 'in_playlist',  # Fast extraction without downloading
+        'playlistend': max_songs,  # Limit number of entries
+        'quiet': True,
+        'no_warnings': True,
+        'ignoreerrors': True,  # Skip private/deleted videos
+    }
+
+    def extract_sync():
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                info = ydl.extract_info(url, download=False)
+
+                if not info or 'entries' not in info:
+                    return None
+
+                playlist_data = {
+                    'id': playlist_id,
+                    'title': info.get('title', 'Unknown Playlist'),
+                    'uploader': info.get('uploader', 'Unknown'),
+                    'total_songs': len(info['entries']),
+                    'songs': []
+                }
+
+                # Process each video in playlist
+                for entry in info['entries']:
+                    if not entry:  # Skip None entries (private/deleted videos)
+                        continue
+
+                    # Filter out live streams
+                    if entry.get('live_status') == 'is_live':
+                        continue
+
+                    song_data = {
+                        'video_id': entry.get('id'),
+                        'title': entry.get('title', 'Unknown Title'),
+                        'channel': entry.get('uploader', 'Unknown Artist'),
+                        'duration': entry.get('duration'),  # In seconds
+                        'thumbnail': entry.get('thumbnail', '')
+                    }
+
+                    # Only add if we have essential data
+                    if song_data['video_id'] and song_data['title']:
+                        playlist_data['songs'].append(song_data)
+
+                return playlist_data
+
+            except Exception as e:
+                print(f"Error extracting playlist info: {e}")
+                return None
+
+    return await asyncio.to_thread(extract_sync)
+
+
 if __name__ == "__main__":
     # For YouTube eNCVyQylZ6c
     # For UouTube Music xquV6OUwNOw

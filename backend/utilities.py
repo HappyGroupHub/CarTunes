@@ -53,6 +53,10 @@ max_cache_size_mb: 300
 # Default is 1 hour.
 cache_duration_hours: 1
 
+# Maximum number of songs to import from a playlist at once
+# Default is 20 songs to prevent spam and maintain reasonable queue sizes
+max_playlist_songs: 20
+
 # Autoplay the recommended next song if there's no more song in the queue.
 # Default is true, which means as the room is created, this option is enabled.
 # User can always disable or enable it with the frontend website.
@@ -150,6 +154,7 @@ def read_config():
                 'audio_quality_kbps': data['audio_quality_kbps'],
                 'max_cache_size_mb': data['max_cache_size_mb'],
                 'cache_duration_hours': data['cache_duration_hours'],
+                'max_playlist_songs': data['max_playlist_songs'],
                 'autoplay_default': data['autoplay_default'],
                 'autoplay_search_engine': data['autoplay_search_engine'],
                 'hl_param': data['hl_param'],
@@ -247,6 +252,11 @@ def is_youtube_url(url: str) -> bool:
     return parsed.netloc.lower() in youtube_domains
 
 
+def is_playlist_url(url: str) -> bool:
+    """Check if URL contains a playlist."""
+    return extract_playlist_id_from_url(url) is not None
+
+
 def extract_video_id_from_url(url: str) -> str | None:
     """Extract video ID from various YouTube URL formats."""
     if not is_youtube_url(url):
@@ -280,3 +290,28 @@ def extract_video_id_from_url(url: str) -> str | None:
                 return video_id
 
     return None
+
+
+def extract_playlist_id_from_url(url: str) -> str | None:
+    """Extract playlist ID from YouTube URL."""
+    if not is_youtube_url(url):
+        return None
+
+    parsed = urllib.parse.urlparse(url)
+    params = urllib.parse.parse_qs(parsed.query)
+
+    # Check for 'list' parameter in URL
+    if 'list' in params:
+        playlist_id = params['list'][0]
+        # Validate playlist ID format (should start with PL, RD, UU, etc.)
+        if re.match(r'^[A-Za-z]{2}[A-Za-z0-9_-]+$', playlist_id):
+            return playlist_id
+
+    return None
+
+
+def extract_video_and_playlist_from_url(url: str) -> tuple[str | None, str | None]:
+    """Extract both video ID and playlist ID from URL if they exist."""
+    video_id = extract_video_id_from_url(url)
+    playlist_id = extract_playlist_id_from_url(url)
+    return video_id, playlist_id
