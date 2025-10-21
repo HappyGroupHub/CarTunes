@@ -501,35 +501,107 @@ def create_playlist_confirmation_carousel(playlist_info: dict, valid_songs: list
     total_duration = sum(song.get('duration', 0) for song in valid_songs)
     duration_text = f"{total_duration // 60} 分 {total_duration % 60} 秒"
 
-    # Prepare songs preview (show first 5)
+    # Prepare songs preview (show first 5 and playlist current song)
     preview_songs = []
-    for i, song in enumerate(valid_songs[:5], 1):
+    current_song_index = None
+
+    # Find current song index if exists
+    if current_video_id:
+        for idx, song in enumerate(valid_songs):
+            if song['video_id'] == current_video_id:
+                current_song_index = idx
+                break
+
+    # Determine which songs to show
+    songs_to_show = []
+    show_ellipsis = False
+    show_remaining_count = False
+
+    if current_song_index is None or current_song_index < 7:
+        # Current song is in first 7 or no current song - show first 7 songs normally
+        songs_to_show = [(i, song) for i, song in enumerate(valid_songs[:7], 1)]
+        # Show remaining count if there are more than 7 songs
+        if len(valid_songs) > 7:
+            show_remaining_count = True
+            remaining_count = len(valid_songs) - 7
+    else:
+        # Current song is beyond position 7
+        is_last_song = (current_song_index == len(valid_songs) - 1)
+
+        if is_last_song:
+            # Current song is the last one - show first 6 + ellipsis + last song
+            songs_to_show = [(i, song) for i, song in enumerate(valid_songs[:6], 1)]
+        else:
+            # Current song is in middle - show first 5 + ellipsis + current song
+            songs_to_show = [(i, song) for i, song in enumerate(valid_songs[:5], 1)]
+
+        show_ellipsis = True
+        # Add the current song
+        songs_to_show.append((current_song_index + 1, valid_songs[current_song_index]))
+
+        # Show remaining count only if current song is not the last one
+        if not is_last_song:
+            show_remaining_count = True
+            remaining_count = len(valid_songs) - current_song_index - 1
+
+    # Generate preview text for each song
+    for i, song in songs_to_show:
         duration = song.get('duration', 0)
         duration_str = f"{duration // 60}:{duration % 60:02d}" if duration else "未知"
 
-        # Add star emoji if this is the current video
+        # Check if this is the current video
         is_current = song['video_id'] == current_video_id
-        song_text = f"{'⭐ ' if is_current else ''}{i}. {song['title'][:30]}... ({duration_str})"
+        song_text = f"{i}. {song['title'][:30]}{'...' if len(song['title']) > 30 else ''}"
 
         preview_songs.append({
-            "type": "text",
-            "text": song_text,
-            "size": "sm",
-            "color": "#555555",
-            "wrap": True,
-            "margin": "sm"
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": song_text,
+                    "size": "xs",
+                    "color": "#06B6D4" if is_current else "#4B5563",
+                    "weight": "bold" if is_current else "regular",
+                    "flex": 5,
+                    "wrap": True,
+                    "maxLines": 1
+                },
+                {
+                    "type": "text",
+                    "text": duration_str,
+                    "size": "xs",
+                    "color": "#9CA3AF",
+                    "align": "end",
+                    "flex": 1
+                }
+            ],
+            "margin": "sm" if preview_songs else "md"
         })
 
-    # Add "and X more..." if there are more songs
-    if len(valid_songs) > 5:
+        # Add ellipsis before the current song if needed
+        if show_ellipsis and i == songs_to_show[-2][0]:  # Before the last item (current song)
+            preview_songs.append({
+                "type": "text",
+                "text": "⋮",
+                "size": "xs",
+                "color": "#4B5563",
+                "weight": "bold",
+                "margin": "xs"
+            })
+
+    # Add remaining count at the end if needed
+    if show_remaining_count:
         preview_songs.append({
             "type": "text",
-            "text": f"... 還有 {len(valid_songs) - 5} 首歌曲",
-            "size": "sm",
-            "color": "#999999",
-            "margin": "sm"
+            "text": f"... 還有 {remaining_count} 首歌曲",
+            "size": "xs",
+            "color": "#94A3B8",
+            "margin": "md",
+            "style": "italic"
         })
 
+    # Construct the bubble
     bubble = {
         "type": "bubble",
         "size": "mega",
@@ -545,7 +617,7 @@ def create_playlist_confirmation_carousel(playlist_info: dict, valid_songs: list
                     "color": "#FFFFFF"
                 }
             ],
-            "backgroundColor": "#FF6B6B",
+            "backgroundColor": "#06B6D4",
             "paddingAll": "15px"
         },
         "body": {
@@ -557,12 +629,14 @@ def create_playlist_confirmation_carousel(playlist_info: dict, valid_songs: list
                     "text": playlist_info['title'][:50],
                     "weight": "bold",
                     "size": "md",
+                    "color": "#2D3748",
                     "wrap": True,
                     "margin": "md"
                 },
                 {
                     "type": "separator",
-                    "margin": "md"
+                    "margin": "md",
+                    "color": "#E2E8F0"
                 },
                 {
                     "type": "box",
@@ -572,14 +646,15 @@ def create_playlist_confirmation_carousel(playlist_info: dict, valid_songs: list
                             "type": "text",
                             "text": "總歌曲數：",
                             "size": "sm",
-                            "color": "#555555",
+                            "color": "#718096",
                             "flex": 0
                         },
                         {
                             "type": "text",
                             "text": f"{len(valid_songs)} 首",
                             "size": "sm",
-                            "color": "#111111",
+                            "color": "#2D3748",
+                            "weight": "bold",
                             "flex": 0
                         }
                     ],
@@ -593,14 +668,15 @@ def create_playlist_confirmation_carousel(playlist_info: dict, valid_songs: list
                             "type": "text",
                             "text": "總時長：",
                             "size": "sm",
-                            "color": "#555555",
+                            "color": "#718096",
                             "flex": 0
                         },
                         {
                             "type": "text",
                             "text": duration_text,
                             "size": "sm",
-                            "color": "#111111",
+                            "color": "#2D3748",
+                            "weight": "bold",
                             "flex": 0
                         }
                     ],
@@ -608,45 +684,52 @@ def create_playlist_confirmation_carousel(playlist_info: dict, valid_songs: list
                 },
                 {
                     "type": "separator",
-                    "margin": "md"
+                    "margin": "md",
+                    "color": "#E2E8F0"
                 },
                 {
                     "type": "text",
                     "text": "歌曲預覽：",
                     "size": "sm",
-                    "color": "#555555",
+                    "color": "#718096",
                     "margin": "md"
                 },
                 *preview_songs
             ],
             "spacing": "sm",
-            "paddingAll": "13px"
+            "paddingAll": "13px",
+            "backgroundColor": "#F7FAFC"
         },
         "footer": {
             "type": "box",
             "layout": "vertical",
             "contents": [
-                {
-                    "type": "button",
-                    "style": "primary",
-                    "action": {
-                        "type": "postback",
-                        "label": f"新增全部 ({min(len(valid_songs), max_songs)} 首)",
-                        "data": f"add_playlist:all|{playlist_id}"
-                    },
-                    "color": "#FF6B6B"
-                },
-                {
-                    "type": "button",
-                    "style": "secondary",
-                    "action": {
-                        "type": "postback",
-                        "label": "僅新增當前歌曲" if current_video_id else "取消",
-                        "data": f"add_playlist:single|{playlist_id}|{current_video_id}" if current_video_id else "cancel"
-                    },
-                    "margin": "sm"
-                }
-            ]
+                            {
+                                "type": "button",
+                                "style": "primary",
+                                "action": {
+                                    "type": "postback",
+                                    "label": f"新增全部 ({min(len(valid_songs), max_songs)} 首)",
+                                    "data": f"add_playlist:all|{playlist_id}"
+                                },
+                                "color": "#06B6D4",
+                                "height": "md"
+                            }] + (
+                            [
+                                {
+                                    "type": "button",
+                                    "style": "secondary",
+                                    "action": {
+                                        "type": "postback",
+                                        "label": "僅新增當前歌曲",
+                                        "data": f"add_playlist:single|{playlist_id}|{current_video_id}"
+                                    },
+                                    "margin": "sm",
+                                    "color": "#E2E8F0",
+                                    "height": "md"
+                                }] if current_video_id else []),
+            "backgroundColor": "#FFFFFF",
+            "paddingAll": "10px"
         }
     }
 
