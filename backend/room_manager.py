@@ -239,6 +239,70 @@ class RoomManager:
         logger.info(f"Song {song_data['video_id']} added to room {room_id}")
         return song, autoplay_removed
 
+    def add_songs_batch_to_queue(self, room_id: str, songs_data: List[Dict], user_id: str,
+                                 user_name: str) -> tuple[List[Song], List[Dict], int]:
+        """Add multiple songs to queue in batch
+        Returns: (successful_songs, failed_songs, autoplay_removed_count)
+        """
+        room = self.get_room(room_id)
+        if not room:
+            return [], songs_data, 0
+
+        successful_songs = []
+        failed_songs = []
+        autoplay_removed_count = 0
+
+        for song_data in songs_data:
+            try:
+                # Check for duplicate
+                existing = next((s for s in room.queue
+                                 if s.video_id == song_data['video_id']), None)
+                if existing:
+                    failed_songs.append({**song_data, 'reason': 'duplicate'})
+                    continue
+
+                # Remove autoplay songs only for the first real song added
+                if not successful_songs and room.queue and room.queue[
+                    0].requester_id == "autoplay_system":
+                    removed_song = room.queue.pop(0)
+                    logger.info(f"Removed autoplay song: {removed_song.title}")
+                    autoplay_removed_count += 1
+
+                # Create new song
+                new_song = Song(
+                    id=f"{room_id}_{len(room.queue)}_{song_data['video_id']}",
+                    video_id=song_data['video_id'],
+                    title=song_data['title'],
+                    channel=song_data.get('channel', 'Unknown Artist'),
+                    duration=song_data.get('duration', 0),
+                    thumbnail=song_data.get('thumbnail', ''),
+                    requester_id=user_id,
+                    requester_name=user_name,
+                    added_at=datetime.now(),
+                    position=len(room.queue)
+                )
+
+                room.queue.append(new_song)
+                successful_songs.append(new_song)
+
+            except Exception as e:
+                logger.error(f"Error adding song {song_data.get('title', 'Unknown')}: {e}")
+                failed_songs.append({**song_data, 'reason': str(e)})
+
+        # Update queue positions once after all additions
+        if successful_songs:
+            self._update_queue_positions(room)
+
+            # Set first song as current if no current song
+            if not room.current_song and not room.playback_state.is_playing and room.queue:
+                room.current_song = room.queue[0]
+                room.playback_state.is_playing = False
+                logger.info(f"Set current song to: {room.current_song.title}")
+
+            room.last_activity = datetime.now()
+
+        return successful_songs, failed_songs, autoplay_removed_count
+
     def skip_to_next_song(self, room_id: str) -> Optional[Song]:
         """Skip to the next song in queue"""
         room = self.rooms.get(room_id)

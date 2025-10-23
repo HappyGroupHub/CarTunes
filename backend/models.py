@@ -24,6 +24,10 @@ class AddSongRequest(BaseModel):
     thumbnail: Optional[str] = None
 
 
+class AddSongBatchRequest(BaseModel):
+    songs: List[AddSongRequest]
+
+
 class ReorderQueueRequest(BaseModel):
     song_ids: List[str]  # List of song IDs in new order
 
@@ -42,6 +46,7 @@ class WSMessageType(str, Enum):
 
     # Queue updates
     SONG_ADDED = "song_added"
+    QUEUE_BATCH_ADDED = "queue_batch_added"
     SONG_REMOVED = "song_removed"
     QUEUE_REORDERED = "queue_reordered"
 
@@ -134,6 +139,14 @@ class AddSongResponse(BaseModel):
     message: str
     song: dict
     queue_length: int
+
+
+class AddSongBatchResponse(BaseModel):
+    message: str
+    songs_added: List[dict]
+    songs_failed: List[dict]
+    total_added: int
+    total_failed: int
 
 
 class QueueResponse(BaseModel):

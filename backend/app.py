@@ -19,7 +19,8 @@ import utilities as utils
 from innertube.audio_cache import AudioCacheManager
 from models import (
     JoinRoomRequest, AddSongRequest, UpdatePlaybackRequest,
-    ReorderQueueRequest, RoomResponse, AddSongResponse, QueueResponse, WSMessage, WSMessageType
+    ReorderQueueRequest, RoomResponse, AddSongResponse, QueueResponse, WSMessage, WSMessageType,
+    AddSongBatchResponse, AddSongBatchRequest
 )
 from room_manager import RoomManager
 from websocket_manager import ConnectionManager
@@ -572,6 +573,105 @@ async def add_song_to_queue(room_id: str, request: AddSongRequest, user_id: str 
         message="Song added to queue",
         song=song.dict(),
         queue_length=len(room.queue)
+    )
+
+
+@app.post("/api/room/{room_id}/queue/add-batch", response_model=AddSongBatchResponse)
+async def add_songs_batch_to_queue(room_id: str, request: AddSongBatchRequest,
+                                   user_id: str = Query(...), user_name: str = Query(...),
+                                   request_object: Request = Request):
+    """Add multiple songs to the queue in batch - for internal use (playlist imports)"""
+    # Only allow requests from localhost
+    client_ip = request_object.client.host
+    if client_ip != "127.0.0.1":
+        raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
+
+    room = room_manager.get_room(room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    if not any(m.user_id == user_id for m in room.members):
+        raise HTTPException(status_code=403, detail="Not a room member")
+
+    # Prepare song data list
+    songs_data = []
+    for song_req in request.songs:
+        song_data = {
+            'video_id': song_req.video_id,
+            'title': song_req.title,
+            'channel': song_req.channel,
+            'duration': song_req.duration,
+            'thumbnail': song_req.thumbnail
+        }
+
+        # Basic validation
+        if song_data['title'] and song_data['video_id']:
+            songs_data.append(song_data)
+            # Refresh cache timer for each song
+            audio_cache_manager.refresh_cache_timer(song_req.video_id)
+
+    if not songs_data:
+        raise HTTPException(status_code=400, detail="No valid songs to add")
+
+    # Check if this will be the first song BEFORE adding
+    was_empty = not room.current_song and not room.playback_state.is_playing
+
+    # Add all songs in batch
+    successful_songs, failed_songs, autoplay_removed = room_manager.add_songs_batch_to_queue(
+        room_id, songs_data, user_id, user_name
+    )
+
+    if not successful_songs:
+        raise HTTPException(status_code=500, detail="Failed to add any songs")
+
+    # Handle WebSocket broadcasting efficiently
+    if autoplay_removed:
+        # First broadcast the queue update if autoplay was removed
+        await ws_manager.broadcast_queue_reordered(room_id, [s.dict() for s in room.queue])
+
+    # Prepare batch data for broadcast
+    added_songs_data = [s.dict() for s in successful_songs]
+
+    # Check if first song became current
+    if was_empty and room.current_song and room.current_song.id == successful_songs[0].id:
+        # Broadcast that first song is now current
+        await ws_manager.broadcast_song_changed(room_id, room.current_song.dict())
+
+        # Remove first song from batch broadcast since it's already current
+        added_songs_data = added_songs_data[1:] if len(added_songs_data) > 1 else []
+
+        # Broadcast playback state if needed
+        if room.playback_state.is_playing:
+            await ws_manager.broadcast_playback_state(
+                room_id,
+                room.playback_state.is_playing,
+                room.playback_state.current_time
+            )
+
+        # Check autoplay if needed
+        if room.autoplay and len(room.queue) == 1:  # Only current song, no queue
+            asyncio.create_task(async_check_autoplay(room_id))
+
+    # Broadcast batch addition for remaining songs
+    if added_songs_data:
+        await ws_manager.broadcast_songs_batch_added(room_id, added_songs_data)
+
+    # Start preloading for first 5 songs in background
+    upcoming_video_ids = []
+    if room.current_song:
+        upcoming_video_ids.append(room.current_song.video_id)
+    upcoming_video_ids.extend([s.video_id for s in room.queue[:5]])
+
+    if upcoming_video_ids:
+        asyncio.create_task(audio_cache_manager.preload_queue_songs(upcoming_video_ids))
+
+    return AddSongBatchResponse(
+        message=f"Added {len(successful_songs)} songs to queue",
+        songs_added=added_songs_data,
+        songs_failed=[
+            {'title': s.get('title', 'Unknown'), 'reason': s.get('reason', 'Unknown error')}
+            for s in failed_songs],
+        total_added=len(successful_songs),
+        total_failed=len(failed_songs)
     )
 
 

@@ -136,6 +136,14 @@ class ConnectionManager:
         )
         await self.broadcast_to_room(room_id, message)
 
+    async def broadcast_songs_batch_added(self, room_id: str, songs: list):
+        """Notify room when multiple songs are added at once"""
+        message = WSMessage(
+            type=WSMessageType.QUEUE_BATCH_ADDED,
+            data={"songs": songs}
+        )
+        await self.broadcast_to_room(room_id, message)
+
     async def broadcast_song_removed(self, room_id: str, song_id: str):
         """Notify room when song is removed"""
         message = WSMessage(

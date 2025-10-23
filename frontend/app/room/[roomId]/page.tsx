@@ -479,10 +479,20 @@ export default function RoomPage() {
                         return {
                             ...prev,
                             queue: [...prev.queue, data.data.song],
-                            // FIXED: Don't touch playback_state when adding songs to queue
                         }
                     })
                     break
+
+                case "QUEUE_BATCH_ADDED":
+                    setRoom((prev) => {
+                        if (!prev) return null
+
+                        // Add all songs from batch to the queue at once
+                        return {
+                            ...prev,
+                            queue: [...prev.queue, ...data.data.songs],
+                        }
+                    })
 
                 case "SONG_REMOVED":
                     setRoom((prev) =>

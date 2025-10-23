@@ -1,7 +1,7 @@
 import asyncio
 import time
 import urllib
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 import httpx
 from fastapi import Request, HTTPException, FastAPI
@@ -153,6 +153,42 @@ async def add_song_via_api(room_id: str, video_id: str, user_id: str, user_name:
     except Exception as e:
         print(f"Error adding song: {e}")
         return None
+
+
+async def add_songs_batch_via_api(room_id: str, songs: List[Dict], user_id: str,
+                                  user_name: str) -> tuple[int, int]:
+    """Add multiple songs via batch API endpoint
+    Returns: (successful_count, failed_count)
+    """
+    backend_port = config['api_endpoints_port']
+    url = f"http://localhost:{backend_port}/api/room/{room_id}/queue/add-batch"
+
+    # Prepare batch request
+    songs_data = []
+    for song in songs:
+        songs_data.append({
+            "video_id": song['video_id'],
+            "title": song['title'],
+            "channel": song.get('channel', 'Unknown'),
+            "duration": song.get('duration', 0),
+            "thumbnail": song.get('thumbnail', '')
+        })
+
+    payload = {"songs": songs_data}
+    params = {"user_id": user_id, "user_name": user_name}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.post(url, json=payload, params=params)
+            if response.status_code == 200:
+                result = response.json()
+                return result['total_added'], result['total_failed']
+            else:
+                print(f"Failed to add songs batch: {response.status_code} - {response.text}")
+                return 0, len(songs)
+        except Exception as e:
+            print(f"Error calling batch add API: {e}")
+            return 0, len(songs)
 
 
 async def change_playback_state_via_api(room_id: str, user_id: str) -> bool | None:
@@ -939,6 +975,7 @@ async def handle_message(event):
             # Extract both video ID and playlist ID
             video_id, playlist_id = utils.extract_video_and_playlist_from_url(message_received)
 
+            # If it's a playlist link
             if playlist_id:
                 # Store playlist URL in cache for later use
                 playlist_cache[f"{user_id}_{playlist_id}"] = {
@@ -1270,42 +1307,40 @@ async def handle_postback(event):
                     )
                     return
 
-                # Add all valid songs
-                added_count = 0
-                failed_count = 0
+                # Prepare valid songs for batch addition
+                valid_songs = []
+                skipped_count = 0
 
                 for song in playlist_info['songs']:
                     duration = song.get('duration', 0)
                     if not utils.check_video_duration(duration):
+                        skipped_count += 1
                         continue
 
-                    try:
-                        result = await add_song_via_api(
-                            room_id, song['video_id'], user_id, user_name,
-                            title=song['title'],
-                            channel=song['channel'],
-                            duration=duration,  # Pass the integer duration directly
-                            thumbnail=song.get('thumbnail', '')
-                        )
-                        if result:
-                            added_count += 1
-                        else:
-                            failed_count += 1
-                    except Exception as e:
-                        print(f"Error adding song from playlist: {e}")
-                        failed_count += 1
+                    valid_songs.append({
+                        'video_id': song['video_id'],
+                        'title': song['title'],
+                        'channel': song.get('channel', 'Unknown Artist'),
+                        'duration': duration,
+                        'thumbnail': song.get('thumbnail', '')
+                    })
 
-                if added_count > 0:
-                    reply_message = TextMessage(
-                        text=f"✅ 播放清單匯入完成！\n"
-                             f"🎵 成功新增 {added_count} 首歌曲"
-                             + (f"\n⚠️ {failed_count} 首歌曲新增失敗" if failed_count > 0 else "")
-                    )
+                if valid_songs:  # Add all songs in one batch call
+                    added_count, failed_count = await add_songs_batch_via_api(
+                        room_id, valid_songs, user_id, user_name)
+
+                    if added_count > 0:
+                        reply_message = TextMessage(
+                            text=f"✅ 播放清單匯入完成！\n"
+                                 f"🎵 成功新增 {added_count} 首歌曲"
+                                 + (f"\n⚠️ {failed_count + skipped_count} 首歌曲新增失敗"
+                                    if (failed_count + skipped_count) > 0 else ""))
+                    else:
+                        reply_message = TextMessage(text="❌ 無法新增播放清單中的歌曲！")
                 else:
-                    reply_message = TextMessage(text="❌ 無法新增播放清單中的歌曲！")
-
-            else:
-                reply_message = TextMessage(text="已取消")
+                    reply_message = TextMessage(
+                        text=f"⚠️ 播放清單中沒有符合條件的歌曲\n"
+                             f"(跳過 {skipped_count} 首超過時長限制的歌曲)")
 
             # Clean up cache after use
             if cache_key in playlist_cache:
