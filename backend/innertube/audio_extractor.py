@@ -1,4 +1,5 @@
 import asyncio
+import re
 
 import yt_dlp
 
@@ -114,7 +115,11 @@ async def get_playlist_info(playlist_id: str, max_songs: int = 20) -> dict | Non
                         'title': entry.get('title', 'Unknown Title'),
                         'channel': entry.get('uploader', 'Unknown Artist'),
                         'duration': entry.get('duration'),  # In seconds
-                        'thumbnail': entry.get('thumbnail', '')
+                        'thumbnail': re.sub(  # Use higher res thumbnail
+                            r'/(hqdefault|mqdefault|sddefault|default|maxresdefault)\.jpg',
+                            '/hq720.jpg',
+                            entry.get('thumbnails', [{}])[-1].get('url', '')) if entry.get(
+                            'thumbnails') else ''
                     }
 
                     # Only add if we have essential data
