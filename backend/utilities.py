@@ -12,7 +12,7 @@ def config_file_generator():
     with open('config.yml', 'w', encoding="utf8") as file:
         file.write("""# ++--------------------------------++
 # | CarTunes       (AGPL-3.0 LICENSE)|
-# | Made by LD                v0.1.0 |
+# | Made by LD                v0.1.1 |
 # ++--------------------------------++
 
 # Line Channel Access Token & Secret

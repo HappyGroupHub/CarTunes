@@ -1,6 +1,6 @@
 [project]
 name = "CarTunes"
-version = "0.1.0"
+version = "0.1.1"
 description = "A collaborative music queue for road trips. Submit song via LINE and enjoy vibes with web-based player"
 readme = "README.md"
 requires-python = ">=3.13"
