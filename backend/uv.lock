@@ -66,6 +66,15 @@ wheels = [
 ]
 
 [[package]]
+name = "annotated-doc"
+version = "0.0.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/a6/dc46877b911e40c00d395771ea710d5e77b6de7bacd5fdcd78d70cc5a48f/annotated_doc-0.0.3.tar.gz", hash = "sha256:e18370014c70187422c33e945053ff4c286f453a984eba84d0dbfa0c935adeda", size = 5535, upload-time = "2025-10-24T14:57:10.718Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/b7/cf592cb5de5cb3bade3357f8d2cf42bf103bbe39f459824b4939fd212911/annotated_doc-0.0.3-py3-none-any.whl", hash = "sha256:348ec6664a76f1fd3be81f43dffbee4c7e8ce931ba71ec67cc7f4ade7fbbb580", size = 5488, upload-time = "2025-10-24T14:57:09.462Z" },
+]
+
+[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -114,9 +123,9 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", specifier = "~=0.119.1" },
+    { name = "fastapi", specifier = "~=0.120.0" },
     { name = "httpx", specifier = "~=0.28.1" },
-    { name = "line-bot-sdk", specifier = "~=3.19.0" },
+    { name = "line-bot-sdk", specifier = "~=3.20.0" },
     { name = "pydantic", specifier = "~=2.12.3" },
     { name = "pyyaml", specifier = "~=6.0.2" },
     { name = "requests", specifier = "~=2.32.4" },
@@ -191,16 +200,17 @@ wheels = [
 
 [[package]]
 name = "fastapi"
-version = "0.119.1"
+version = "0.120.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "annotated-doc" },
     { name = "pydantic" },
     { name = "starlette" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a6/f4/152127681182e6413e7a89684c434e19e7414ed7ac0c632999c3c6980640/fastapi-0.119.1.tar.gz", hash = "sha256:a5e3426edce3fe221af4e1992c6d79011b247e3b03cc57999d697fe76cbf8ae0", size = 338616, upload-time = "2025-10-20T11:30:27.734Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f7/0e/7f29e8f7219e4526747db182e1afb5a4b6abc3201768fb38d81fa2536241/fastapi-0.120.0.tar.gz", hash = "sha256:6ce2c1cfb7000ac14ffd8ddb2bc12e62d023a36c20ec3710d09d8e36fab177a0", size = 337603, upload-time = "2025-10-23T20:56:34.743Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b1/26/e6d959b4ac959fdb3e9c4154656fc160794db6af8e64673d52759456bf07/fastapi-0.119.1-py3-none-any.whl", hash = "sha256:0b8c2a2cce853216e150e9bd4faaed88227f8eb37de21cb200771f491586a27f", size = 108123, upload-time = "2025-10-20T11:30:26.185Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/60/7a639ceaba54aec4e1d5676498c568abc654b95762d456095b6cb529b1ca/fastapi-0.120.0-py3-none-any.whl", hash = "sha256:84009182e530c47648da2f07eb380b44b69889a4acfd9e9035ee4605c5cfc469", size = 108243, upload-time = "2025-10-23T20:56:33.281Z" },
 ]
 
 [[package]]
@@ -303,7 +313,7 @@ wheels = [
 
 [[package]]
 name = "line-bot-sdk"
-version = "3.19.0"
+version = "3.20.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aenum" },
@@ -315,9 +325,9 @@ dependencies = [
     { name = "requests" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1b/31/89bc07122c09d73a90a4f44b10cc4d5976faeccd2fa7a090652a1b4fcbbc/line_bot_sdk-3.19.0.tar.gz", hash = "sha256:675f9ebe5a551aff53bbf3344a0c66e4d43795cca00b9b6ea5acd7eccfdcc116", size = 466642, upload-time = "2025-08-26T01:48:28.144Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/6d/11a20c87f2d8fb84faf162ee463d32e55e4ef144f0a6728728a9413ffbfe/line_bot_sdk-3.20.0.tar.gz", hash = "sha256:f07c8b96891db6cafa60ca93edeebb86a9fd5ac02ad55b3a25cb9ba679bb91d7", size = 468056, upload-time = "2025-10-24T02:08:54.999Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/ee/98d74d8d76ecd0a5e202b8d08f65c5fc08e1878786123685db38aad54405/line_bot_sdk-3.19.0-py2.py3-none-any.whl", hash = "sha256:7aeb8cafa4fec826d7092e7aea4e84b2a6c30e2839b396a5ab9ae69d5c8ff3c0", size = 816429, upload-time = "2025-08-26T01:48:25.928Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/56/e86ad29e201ce3680cd09ccdd485ce4e6495d99295281ea981aa13a4dd91/line_bot_sdk-3.20.0-py2.py3-none-any.whl", hash = "sha256:29d7d922cc0688dc903f6e3a3bd080f7a6ccb3c66176f9fc114750e5a483d7a3", size = 816969, upload-time = "2025-10-24T02:08:52.986Z" },
 ]
 
 [[package]]

@@ -8,6 +8,8 @@ aiohttp==3.12.14
     # via line-bot-sdk
 aiosignal==1.4.0
     # via aiohttp
+annotated-doc==0.0.3
+    # via fastapi
 annotated-types==0.7.0
     # via pydantic
 anyio==4.9.0
@@ -29,7 +31,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via click
 deprecated==1.2.18
     # via line-bot-sdk
-fastapi==0.119.1
+fastapi==0.120.0
     # via cartunes
 frozenlist==1.7.0
     # via
@@ -51,7 +53,7 @@ idna==3.10
     #   httpx
     #   requests
     #   yarl
-line-bot-sdk==3.19.0
+line-bot-sdk==3.20.0
     # via cartunes
 multidict==6.6.3
     # via
