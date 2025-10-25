@@ -254,13 +254,6 @@ class RoomManager:
 
         for song_data in songs_data:
             try:
-                # Check for duplicate
-                existing = next((s for s in room.queue
-                                 if s.video_id == song_data['video_id']), None)
-                if existing:
-                    failed_songs.append({**song_data, 'reason': 'duplicate'})
-                    continue
-
                 # Remove autoplay songs only for the first real song added
                 if not successful_songs and room.queue and room.queue[
                     0].requester_id == "autoplay_system":
