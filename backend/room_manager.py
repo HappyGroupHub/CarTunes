@@ -295,7 +295,7 @@ class RoomManager:
 
             # Set first song as current if no current song
             if not room.current_song and not room.playback_state.is_playing and room.queue:
-                room.current_song = room.queue[0]
+                room.current_song = room.queue.pop(0)
                 room.playback_state.is_playing = False
                 logger.info(f"Set current song to: {room.current_song.title}")
 
