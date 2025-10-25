@@ -71,7 +71,7 @@ synchronized in real-time.
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.13+
 - Node.js 16+
 - FFmpeg
 - LINE Developer Account
@@ -154,6 +154,7 @@ song_length_limit: 1800          # Max song length (30 minutes)
 audio_quality_kbps: 96           # Audio bitrate
 max_cache_size_mb: 300           # Cache size limit
 cache_duration_hours: 1          # How long to keep cached audio
+max_playlist_songs: 20           # Maximum songs for playlist import
 
 # Room Settings  
 numeric_room_code: false         # Use numbers-only room codes
@@ -284,7 +285,7 @@ CarTunes 是一個即時協作音樂播放系統，專為公路旅行、派對�
 
 ### 前置需求
 
-- Python 3.8+
+- Python 3.13+
 - Node.js 16+
 - FFmpeg
 - LINE 開發者帳號
@@ -367,6 +368,7 @@ song_length_limit: 1800          # 最長歌曲長度（30 分鐘）
 audio_quality_kbps: 96           # 音訊位元率
 max_cache_size_mb: 300           # 快取大小限制
 cache_duration_hours: 1          # 保留快取音訊的時間
+max_playlist_songs: 20           # 播放清單匯入的最大歌曲數量
 
 # 房間設定
 numeric_room_code: false         # 使用純數字房間代碼
