@@ -31,7 +31,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via click
 deprecated==1.2.18
     # via line-bot-sdk
-fastapi==0.120.0
+fastapi==0.121.0
     # via cartunes
 frozenlist==1.7.0
     # via
