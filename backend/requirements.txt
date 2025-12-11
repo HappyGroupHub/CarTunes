@@ -53,7 +53,7 @@ idna==3.10
     #   httpx
     #   requests
     #   yarl
-line-bot-sdk==3.20.0
+line-bot-sdk==3.21.0
     # via cartunes
 multidict==6.6.3
     # via
