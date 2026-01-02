@@ -96,6 +96,7 @@ export default function RoomPage() {
     const [statusMessageOpacity, setStatusMessageOpacity] = useState(1)
     const [statusIconComponent, setStatusIconComponent] = useState<React.ElementType | null>(null)
     const [statusMessageColor, setStatusMessageColor] = useState<string>("")
+    const [isMuteButtonHidden, setIsMuteButtonHidden] = useState(false)
     const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
     const audioRef = useRef<HTMLAudioElement>(null)
@@ -1204,17 +1205,19 @@ export default function RoomPage() {
             setStatusMessage(message)
             setStatusMessageColor(newState ? "text-red-500" : "text-green-400")
             setStatusMessageOpacity(1)
+            setIsMuteButtonHidden(true) // Hide mute button
 
             // Set timeout to start fading after 2.5 seconds
             messageTimeoutRef.current = setTimeout(() => {
                 setStatusMessageOpacity(0)
             }, 2500)
 
-            // Set timeout to clear message completely after 3 seconds (0.5s fade + 2.5s delay)
+            // Set timeout to clear message and show button again after 3 seconds
             messageTimeoutRef.current = setTimeout(() => {
                 setStatusMessage(null)
                 setStatusMessageColor("")
                 setStatusMessageOpacity(1)
+                setIsMuteButtonHidden(false) // Show mute button again
             }, 3000)
         }
     }
@@ -1509,16 +1512,18 @@ export default function RoomPage() {
                             <Share2 className="h-4 w-4"/>
                         </Button>
 
-                        {/* Mute Button */}
-                        <Button
-                            onClick={toggleMute}
-                            size="icon"
-                            variant="ghost"
-                            className={`${isMuted ? "text-red-500 active:bg-red-500/20 md:hover:bg-red-500/20" : "text-white active:bg-white/20 md:hover:bg-white/20"} w-8 h-8`}
-                            aria-label={isMuted ? "Unmute audio" : "Mute audio"}
-                        >
-                            {isMuted ? <VolumeX className="h-4 w-4"/> : <Volume2 className="h-4 w-4"/>}
-                        </Button>
+                        {/* Mute Button - hidden while status message is showing */}
+                        {!isMuteButtonHidden && (
+                            <Button
+                                onClick={toggleMute}
+                                size="icon"
+                                variant="ghost"
+                                className={`${isMuted ? "text-red-500 active:bg-red-500/20 md:hover:bg-red-500/20" : "text-white active:bg-white/20 md:hover:bg-white/20"} w-8 h-8`}
+                                aria-label={isMuted ? "Unmute audio" : "Mute audio"}
+                            >
+                                {isMuted ? <VolumeX className="h-4 w-4"/> : <Volume2 className="h-4 w-4"/>}
+                            </Button>
+                        )}
 
                         {/* Status Message (replaces mute message) */}
                         {statusMessage && (
