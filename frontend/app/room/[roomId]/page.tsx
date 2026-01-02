@@ -25,11 +25,12 @@ import {
     Volume2,
     ArrowUpNarrowWide,
     Check,
+    Share2
 } from "lucide-react"
 import {useWebSocket} from "@/hooks/use-websocket"
 import {formatTime} from "@/lib/utils"
 import {Modal} from "@/components/ui/modal"
-import {API_ENDPOINTS} from "@/lib/config"
+import {API_ENDPOINTS, LINE_CONFIG} from "@/lib/config"
 import {loadAudio} from "@/lib/audio-loader"
 import {AutoplayToggle} from "@/components/autoplay-toggle"
 
@@ -128,6 +129,10 @@ export default function RoomPage() {
     const MAX_RETRY_ATTEMPTS = 2
     const [isPlaybackRequestPending, setIsPlaybackRequestPending] = useState(false);
 
+    const handleShare = () => {
+        const liffUrl = `https://liff.line.me/${LINE_CONFIG.LIFF_ID}?roomId=${roomId}`;
+        window.open(liffUrl, "_blank");
+    }
 
     useEffect(() => {
         roomRef.current = room
@@ -1494,6 +1499,15 @@ export default function RoomPage() {
                             <Music className="h-6 w-6 text-white" strokeWidth={2}/>
                             <span className="text-white font-semibold">房間 {roomId}</span>
                         </div>
+
+                        <Button
+                            onClick={handleShare}
+                            size="icon"
+                            variant="ghost"
+                            className="text-white active:bg-white/20 md:hover:bg-white/20 w-8 h-8 flex-shrink-0 p-0"
+                        >
+                            <Share2 className="h-4 w-4"/>
+                        </Button>
 
                         {/* Mute Button */}
                         <Button

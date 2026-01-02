@@ -7,6 +7,8 @@ export const API_CONFIG = {
 // LINE Configuration
 export const LINE_CONFIG = {
   BOT_URL: process.env.NEXT_PUBLIC_LINE_BOT_URL || "https://google.com",
+  BOT_ID: process.env.NEXT_PUBLIC_LINE_BOT_ID || "@your_bot_id",
+  LIFF_ID: process.env.NEXT_PUBLIC_LIFF_ID || "",
 } as const
 
 // API Endpoints
