@@ -775,6 +775,266 @@ def create_playlist_confirmation_carousel(playlist_info: dict, valid_songs: list
     )
 
 
+def create_room_created_flex_message(room_id: str) -> FlexMessage:
+    """Create a flex message for successful room creation with share and search buttons."""
+    liff_share_url = f"https://liff.line.me/{config.get('liff_id', '')}?roomId={room_id}"
+
+    bubble = {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🎉 房間創建成功！",
+                    "weight": "bold",
+                    "size": "xl",
+                    "color": "#FFFFFF"
+                }
+            ],
+            "backgroundColor": "#06B6D4",
+            "paddingAll": "15px"
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "房間代碼",
+                            "size": "sm",
+                            "color": "#718096",
+                            "flex": 0
+                        },
+                        {
+                            "type": "text",
+                            "text": room_id,
+                            "size": "xl",
+                            "weight": "bold",
+                            "color": "#06B6D4",
+                            "align": "end",
+                            "flex": 0
+                        }
+                    ],
+                    "justifyContent": "space-between",
+                    "alignItems": "center"
+                },
+                {
+                    "type": "separator",
+                    "margin": "lg",
+                    "color": "#E2E8F0"
+                },
+                {
+                    "type": "text",
+                    "text": "🎵 開始點歌",
+                    "weight": "bold",
+                    "size": "md",
+                    "color": "#2D3748",
+                    "margin": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "直接輸入歌名搜尋，或貼上 YouTube 連結即可新增歌曲到播放佇列",
+                    "size": "sm",
+                    "color": "#718096",
+                    "wrap": True,
+                    "margin": "sm"
+                },
+                {
+                    "type": "separator",
+                    "margin": "lg",
+                    "color": "#E2E8F0"
+                },
+                {
+                    "type": "text",
+                    "text": "👥 邀請朋友",
+                    "weight": "bold",
+                    "size": "md",
+                    "color": "#2D3748",
+                    "margin": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "點擊下方「分享至聊天室」按鈕，邀請朋友一起播歌同樂！",
+                    "size": "sm",
+                    "color": "#718096",
+                    "wrap": True,
+                    "margin": "sm"
+                }
+            ],
+            "spacing": "sm",
+            "paddingAll": "20px",
+            "backgroundColor": "#F7FAFC"
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "action": {
+                        "type": "uri",
+                        "label": "📤 分享至聊天室",
+                        "uri": liff_share_url
+                    },
+                    "color": "#06B6D4",
+                    "height": "md"
+                },
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "action": {
+                        "type": "postback",
+                        "label": "🔍 搜尋並新增歌曲",
+                        "data": "open_keyboard_search",
+                        "inputOption": "openKeyboard",
+                    },
+                    "margin": "sm",
+                    "height": "md"
+                }
+            ],
+            "backgroundColor": "#FFFFFF",
+            "paddingAll": "15px"
+        }
+    }
+
+    return FlexMessage(
+        alt_text=f"🎉 房間創建成功！房間代碼：{room_id}",
+        contents=FlexContainer.from_dict(bubble)
+    )
+
+
+def create_room_joined_flex_message(room_id: str) -> FlexMessage:
+    """Create a flex message for successful room joining with search button."""
+
+    bubble = {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🎉 房間加入成功！",
+                    "weight": "bold",
+                    "size": "xl",
+                    "color": "#FFFFFF"
+                }
+            ],
+            "backgroundColor": "#06B6D4",
+            "paddingAll": "15px"
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "房間代碼",
+                            "size": "sm",
+                            "color": "#718096",
+                            "flex": 0
+                        },
+                        {
+                            "type": "text",
+                            "text": room_id,
+                            "size": "xl",
+                            "weight": "bold",
+                            "color": "#06B6D4",
+                            "align": "end",
+                            "flex": 0
+                        }
+                    ],
+                    "justifyContent": "space-between",
+                    "alignItems": "center"
+                },
+                {
+                    "type": "separator",
+                    "margin": "lg",
+                    "color": "#E2E8F0"
+                },
+                {
+                    "type": "text",
+                    "text": "🎵 開始點歌",
+                    "weight": "bold",
+                    "size": "md",
+                    "color": "#2D3748",
+                    "margin": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "直接輸入歌名搜尋，或貼上 YouTube 連結即可新增歌曲到播放佇列",
+                    "size": "sm",
+                    "color": "#718096",
+                    "wrap": True,
+                    "margin": "sm"
+                },
+                {
+                    "type": "separator",
+                    "margin": "lg",
+                    "color": "#E2E8F0"
+                },
+                {
+                    "type": "text",
+                    "text": "📱 網頁播放器",
+                    "weight": "bold",
+                    "size": "md",
+                    "color": "#2D3748",
+                    "margin": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "點擊下方選單的「音樂播放器」進入網頁，隨時插歌或刪除不想要的歌曲～",
+                    "size": "sm",
+                    "color": "#718096",
+                    "wrap": True,
+                    "margin": "sm"
+                }
+            ],
+            "spacing": "sm",
+            "paddingAll": "20px",
+            "backgroundColor": "#F7FAFC"
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "action": {
+                        "type": "postback",
+                        "label": "🔍 搜尋並新增歌曲",
+                        "data": "open_keyboard_search",
+                        "inputOption": "openKeyboard",
+                    },
+                    "color": "#06B6D4",
+                    "height": "md"
+                }
+            ],
+            "backgroundColor": "#FFFFFF",
+            "paddingAll": "15px"
+        }
+    }
+
+    return FlexMessage(
+        alt_text=f"🎉 房間加入成功！房間代碼：{room_id}",
+        contents=FlexContainer.from_dict(bubble)
+    )
+
+
 @app.post("/callback")
 async def callback(request: Request):
     """Callback function for line webhook."""
@@ -815,6 +1075,13 @@ async def handle_message(event):
                 return
         # Update last message time
         user_messages[user_id] = current_time
+
+        if message_received == "test":
+            reply_message = create_room_joined_flex_message("123456")
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
+            )
+            return
 
         if message_received == "離開房間":
             if user_id in user_rooms:
@@ -867,13 +1134,7 @@ async def handle_message(event):
             user_name = (await line_bot_api.get_profile(user_id)).display_name
             success, error_message = await join_room(user_id, room_id, user_name)
             if success:
-                reply_message = TextMessage(
-                    text=f"房間加入成功！🎉\n" \
-                         f"現在您可以在聊天室搜尋歌曲並新增\n" \
-                         f"或直接貼上 YouTube 連結點歌\n\n" \
-                         f"🎵 點擊下方區域進入網頁播放器\n"
-                         f"隨時插歌或是刪除不想要的歌曲～\n\n" \
-                         f"房間代碼：{room_id}")
+                reply_message = create_room_joined_flex_message(room_id)
             elif error_message == "No such room":
                 reply_message = TextMessage(
                     text="❌ 錯誤的房間代碼！\n"
@@ -894,19 +1155,12 @@ async def handle_message(event):
                 success, result = await create_room_via_api(user_id, user_name)
 
                 if success:
-                    reply_message = TextMessage(
-                        text=f"房間創建成功！🎉\n" \
-                             f"現在您可以直接在此聊天室搜尋和新增歌曲了！點擊下方的區域進入網頁播放器，隨時插歌" \
-                             f"或是刪除不想要的歌曲～\n\n" \
-                             f"🎵 想邀請朋友一起聽歌？\n" \
-                             f"您現在可以直接分享此訊息給朋友，他們只要將此訊息轉發給本官方帳號，" \
-                             f"就能自動加入您的房間與一起同樂！\n\n" \
-                             f"房間代碼：{result}\n" \
-                             f"🎶 一起來創造美好的音樂時光！")
+                    reply_message = create_room_created_flex_message(result)
+                    print(reply_message)
                 else:
                     if result == "Forbidden: Internal use only":
                         reply_message = TextMessage(text="建立房間時發生錯誤，請稍後再試。")
-                    if result == "Forbidden: Reached maximum room limit":
+                    elif result == "Forbidden: Reached maximum room limit":
                         reply_message = TextMessage(text="已抵達可建立房間上限，請稍後再試。")
 
             await line_bot_api.reply_message(

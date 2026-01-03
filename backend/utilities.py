@@ -15,10 +15,14 @@ def config_file_generator():
 # | Made by LD                v0.1.1 |
 # ++--------------------------------++
 
-# Line Channel Access Token & Secret
+# LINE Channel Access Token & Secret
 # You can get it from https://developers.line.biz/console/
 line_channel_access_token: ''
 line_channel_secret: ''
+
+# LINE LIFF ID for room sharing link.
+# You can get it from https://developers.line.biz/console/ -> LIFF tab
+liff_id: ''
 
 # Backend server configuration, aka the webhook server for LINE and API endpoints for websites.
 # If you change port, make sure to change the port in your reverse proxy as well.
@@ -146,6 +150,7 @@ def read_config():
             config = {
                 'line_channel_access_token': data['line_channel_access_token'],
                 'line_channel_secret': data['line_channel_secret'],
+                'liff_id': data['liff_id'],
                 'api_endpoints_port': data['api_endpoints_port'],
                 'line_webhook_port': data['line_webhook_port'],
                 'frontend_url': data['frontend_url'],
@@ -175,9 +180,10 @@ def read_config():
             }
             file.close()
 
-            # Validate if LINE channel access token and secret are provided
-            if not config['line_channel_access_token'] or not config['line_channel_secret']:
-                print("Please fill in LINE channel access token and secret in config.yml.\n"
+            # Validate if LINE channel access token/secret and LIFF ID are provided
+            if not config['line_channel_access_token'] or not config['line_channel_secret'] or not \
+                    config['liff_id']:
+                print("Please fill in LINE channel access token/secret and LIFF ID in config.yml.\n"
                       "You can get it from https://developers.line.biz/console/")
                 sys.exit()
 
