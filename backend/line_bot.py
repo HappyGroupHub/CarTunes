@@ -1076,13 +1076,6 @@ async def handle_message(event):
         # Update last message time
         user_messages[user_id] = current_time
 
-        if message_received == "test":
-            reply_message = create_room_joined_flex_message("123456")
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
-            )
-            return
-
         if message_received == "離開房間":
             if user_id in user_rooms:
                 room_id = user_rooms[user_id]
