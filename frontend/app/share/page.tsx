@@ -28,16 +28,16 @@ function ShareContent() {
                                 type: "bubble",
                                 hero: {
                                     type: "image",
-                                    url: "https://i.imgur.com/zSJgfAT.jpeg", // 建議換成您的 App Logo 或封面
+                                    url: "https://i.imgur.com/UBBWwkZ.jpeg",
                                     size: "full", aspectRatio: "20:13", aspectMode: "cover"
                                 },
                                 body: {
                                     type: "box", layout: "vertical",
                                     contents: [
-                                        {type: "text", text: "🎵 CarTunes 聽歌邀請", weight: "bold", size: "xl"},
+                                        {type: "text", text: "🎵 一起來聽歌吧！", weight: "bold", size: "xl"},
                                         {
                                             type: "text",
-                                            text: "點擊下方按鈕立即加入房間，一起同步聽歌、點歌！",
+                                            text: "你的朋友邀請你加入 CarTunes 房間\n點擊下方按鈕一起點歌同樂！",
                                             wrap: true,
                                             margin: "md",
                                             size: "sm",
@@ -49,10 +49,9 @@ function ShareContent() {
                                     type: "box", layout: "vertical",
                                     contents: [
                                         {
-                                            type: "button", style: "primary", color: "#9333ea",
+                                            type: "button", style: "primary", color: "#10B981",
                                             action: {
-                                                type: "uri", label: "立即進入房間",
-                                                // 使用 LINE URL Scheme 達成自動預填訊息
+                                                type: "uri", label: "開始點歌",
                                                 uri: `https://line.me/R/oaMessage/${LINE_CONFIG.BOT_ID}/?房間代碼：${roomId}`
                                             }
                                         }
