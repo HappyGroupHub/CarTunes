@@ -12,7 +12,7 @@ interface UseWebSocketOptions {
     enabled?: boolean
     reconnectInterval?: number
     maxReconnectAttempts?: number
-    silentAudioRef?: React.RefObject<HTMLAudioElement>
+    silentAudioRef?: React.RefObject<HTMLAudioElement | null>
     onSilentAudioStateChange?: (isPlaying: boolean) => void
 }
 
