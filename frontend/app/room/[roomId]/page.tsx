@@ -72,6 +72,7 @@ interface QuickPlaySong {
     channel: string
     thumbnail: string
     type: string
+    duration: number
     lang_tag?: string
 }
 
@@ -95,6 +96,7 @@ export default function RoomPage() {
     const [quickPlaySongs, setQuickPlaySongs] = useState<QuickPlaySong[]>([])
     const [quickPlayLoading, setQuickPlayLoading] = useState(false)
     const [quickPlayAdding, setQuickPlayAdding] = useState<string | null>(null)
+    const quickPlayInProgressRef = useRef<boolean>(false)
 
     const handleErrorModalClose = () => {
         setShowErrorModal(false)
@@ -174,6 +176,7 @@ export default function RoomPage() {
         setQuickPlayAdding(song.id)
         setHasUserInteractedWithPlayButton(true)
         hasUserInteractedWithPlayButtonRef.current = true
+        quickPlayInProgressRef.current = true  // Mark quick play in progress
 
         try {
             const userName = room?.members.find(m => m.user_id === userId)?.user_name || "User"
@@ -187,7 +190,7 @@ export default function RoomPage() {
                         video_id: song.id,
                         title: song.title,
                         channel: song.channel,
-                        duration: 0, // Will be fetched by backend
+                        duration: song.duration,
                         thumbnail: song.thumbnail
                     })
                 }
@@ -202,6 +205,7 @@ export default function RoomPage() {
         } catch (error) {
             console.error("Failed to add quick play song:", error)
             setAudioError("新增歌曲失敗，請重試")
+            quickPlayInProgressRef.current = false  // Clear on error
         } finally {
             setQuickPlayAdding(null)
         }
@@ -426,7 +430,7 @@ export default function RoomPage() {
     }, [])
 
     const handleCanPlay = useCallback(
-        (audioElement: HTMLAudioElement, isPlaying: boolean, userHasInteracted: boolean) => {
+        async (audioElement: HTMLAudioElement, isPlaying: boolean, userHasInteracted: boolean) => {
             setIsNewUserLoadingAudio(false)
 
             // Clear the timeout if audio loads successfully
@@ -435,17 +439,38 @@ export default function RoomPage() {
                 newUserLoadingTimeoutRef.current = null
             }
 
+            // Check if this was a quick play - auto-start playback
+            if (quickPlayInProgressRef.current) {
+                quickPlayInProgressRef.current = false  // Clear the flag
+
+                // Automatically trigger play by calling the backend
+                try {
+                    const response = await fetch(`${API_ENDPOINTS.PLAYBACK(roomId)}?user_id=${userId}`, {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({is_playing: true, current_time: 0})
+                    })
+                    if (response.ok) {
+                        // Backend will broadcast PLAYBACK_STARTED, which will trigger audio.play()
+                        console.log("Quick play: auto-started playback")
+                    }
+                } catch (error) {
+                    console.error("Quick play: failed to auto-start:", error)
+                }
+                return
+            }
+
             if (userHasInteracted && isPlaying && audioElement.paused) {
                 audioElement.play().catch((e) => console.error("Autoplay blocked on canplay:", e))
             }
         },
-        []
+        [roomId, userId]
     )
 
     const loadAudioForCurrentSong = useCallback(
         async (videoId: string, initialTime: number, isPlaying: boolean, userHasInteracted: boolean) => {
             if (audioLoaderCleanupRef.current) {
-                audioLoaderCleanupRef.current() // Clean up previous audio loading
+                audioLoaderCleanupRef.current()
                 audioLoaderCleanupRef.current = null
             }
 
