@@ -1,5 +1,6 @@
 import asyncio
 import random
+import re
 from typing import List, Dict, Optional, Any
 
 import httpx
@@ -76,8 +77,8 @@ async def get_mixed_quick_play_songs() -> List[Dict]:
     metadata_tasks = []
     songs_to_update = []
     for song in all_selected_songs:
-        if song['title'] == "Unknown Title" or not song['channel']:
-            metadata_tasks.append(get_audio_stream_info(song['id']))
+        if song['title'] == "Unknown Title" or not song['channel'] or not song.get('duration'):
+            metadata_tasks.append(asyncio.to_thread(get_audio_stream_info, song['id']))
             songs_to_update.append(song)
 
     if metadata_tasks:
@@ -85,7 +86,8 @@ async def get_mixed_quick_play_songs() -> List[Dict]:
         for song, info in zip(songs_to_update, infos):
             if info:
                 song['title'] = info.get('title', song['title'])
-                song['channel'] = info.get('uploader', song['channel'])
+                song['channel'] = info.get('channel', song['channel'])
+                song['duration'] = info.get('duration', song.get('duration'))
 
     return all_selected_songs
 
@@ -154,10 +156,22 @@ def _parse_items_recursive(data: Dict) -> List[Dict]:
 
         title = "Unknown Title"
         artist = "Unknown Artist"
+        duration = None
 
+        # 1. Try extracting duration from fixedColumns (common in playlists)
+        fixed_cols = renderer.get('fixedColumns', [])
+        if fixed_cols:
+            try:
+                duration = \
+                    fixed_cols[0]['musicResponsiveListItemFixedColumnRenderer']['text']['runs'][0][
+                        'text']
+            except:
+                pass
+
+        # 2. Extract Title and metadata from flexColumns
         flex_columns = renderer.get('flexColumns', [])
         if flex_columns:
-            # Title
+            # Title is Column 0
             try:
                 title_runs = flex_columns[0]['musicResponsiveListItemFlexColumnRenderer']['text'][
                     'runs']
@@ -165,16 +179,23 @@ def _parse_items_recursive(data: Dict) -> List[Dict]:
             except:
                 pass
 
-            # Artist
-            if len(flex_columns) > 1:
+            # Scan remaining columns for Artist and Duration
+            for col in flex_columns[1:]:
                 try:
-                    runs = flex_columns[1]['musicResponsiveListItemFlexColumnRenderer']['text'][
-                        'runs']
-                    names = [r['text'] for r in runs if
-                             r['text'].strip() not in ['', '•', '·', '●']]
-                    if names: artist = names[0]
+                    runs = col['musicResponsiveListItemFlexColumnRenderer']['text']['runs']
+                    for r in runs:
+                        text = r['text'].strip()
+                        if not text or text in ['•', '·', '●', '·']:
+                            continue
+
+                        # Regex for duration format (e.g., 3:45 or 12:05)
+                        if re.match(r'^\d+:\d+$', text):
+                            if not duration: duration = text
+                        elif artist == "Unknown Artist":
+                            # The first non-separator, non-duration text is the artist
+                            artist = text
                 except:
-                    pass
+                    continue
 
         thumbnails = renderer.get('thumbnail', {}).get('musicThumbnailRenderer', {}).get(
             'thumbnail', {}).get('thumbnails', [])
@@ -184,6 +205,7 @@ def _parse_items_recursive(data: Dict) -> List[Dict]:
             'id': video_id,
             'title': title,
             'channel': artist,
+            'duration': utils.convert_duration_to_seconds(duration),
             'thumbnail': thumb_url,
             'type': 'song'
         })
@@ -196,8 +218,8 @@ if __name__ == "__main__":
         print("Generating Curated Mixed Dashboard (Total 9 Songs)...")
         results = await get_mixed_quick_play_songs()
         for i, song in enumerate(results, 1):
-            print(
-                f"{i}. [{song['lang_tag']}] {song['title']} - {song['channel']} (ID: {song['id']})")
+            dur = song.get('duration') or 'N/A'
+            print(f"{i}. [{song['lang_tag']}] {song['title']} - {song['channel']} ({dur})")
 
 
     asyncio.run(main())
