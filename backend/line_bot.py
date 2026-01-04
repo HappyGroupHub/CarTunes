@@ -1155,10 +1155,21 @@ async def handle_message(event):
                         reply_message = TextMessage(text="建立房間時發生錯誤，請稍後再試。")
                     elif result == "Forbidden: Reached maximum room limit":
                         reply_message = TextMessage(text="已抵達可建立房間上限，請稍後再試。")
-
             await line_bot_api.reply_message(
                 ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message])
             )
+
+            # Pre-fetch quick play songs in background (non-blocking)
+            async def prefetch_quick_play(room_id: str):
+                try:
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        await client.get(f"http://localhost:{config['api_endpoints_port']}/"
+                                         f"api/room/{room_id}/quick-play")
+                except Exception as e:
+                    print(f"Failed to prefetch quick play songs: {e}")
+
+            asyncio.create_task(prefetch_quick_play(result))
+
             return
 
         # After all check, if user is not in a room, ask them to create or join one
