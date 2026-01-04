@@ -355,7 +355,8 @@ async def create_room(
         current_song=room.current_song.dict() if room.current_song else None,
         playback_state=room.playback_state.dict(),
         active_users=room.active_connections,
-        autoplay=room.autoplay
+        autoplay=room.autoplay,
+        quick_play_songs = room.quick_play_songs
     )
 
 @app.post("/api/room/join", response_model=RoomResponse)
@@ -498,17 +499,33 @@ async def toggle_autoplay(room_id: str):
     return {"success": True, "autoplay": new_state}
 
 
+@app.get("/api/room/{room_id}/quick-play")
+async def get_quick_play_songs(room_id: str):
+    """Get quick play songs for a room"""
+    room = room_manager.get_room(room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    # Return cached songs if available
+    if room.quick_play_songs:
+        return {"songs": room.quick_play_songs}
+
+    # Otherwise fetch new songs
+    from innertube.quick_play import get_mixed_quick_play_songs
+    songs = await get_mixed_quick_play_songs()
+
+    # Cache the songs in the room
+    room.quick_play_songs = songs
+
+    return {"songs": songs}
+
+
 # ===== Queue Endpoints =====
 
 @app.post("/api/room/{room_id}/queue/add", response_model=AddSongResponse)
 async def add_song_to_queue(room_id: str, request: AddSongRequest, user_id: str = Query(...),
-                            user_name: str = Query(...), request_object: Request = Request):
-    """Add a song to the queue, only for internal calls (called by line_bot.py)"""
-    # Only allow requests from localhost
-    client_ip = request_object.client.host
-    if client_ip != "127.0.0.1":
-        raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
-
+                            user_name: str = Query(...)):
+    """Add a song to the queue"""
     room = room_manager.get_room(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -578,14 +595,8 @@ async def add_song_to_queue(room_id: str, request: AddSongRequest, user_id: str 
 
 @app.post("/api/room/{room_id}/queue/add-batch", response_model=AddSongBatchResponse)
 async def add_songs_batch_to_queue(room_id: str, request: AddSongBatchRequest,
-                                   user_id: str = Query(...), user_name: str = Query(...),
-                                   request_object: Request = Request):
-    """Add multiple songs to the queue in batch - for internal use (playlist imports)"""
-    # Only allow requests from localhost
-    client_ip = request_object.client.host
-    if client_ip != "127.0.0.1":
-        raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
-
+                                   user_id: str = Query(...), user_name: str = Query(...)):
+    """Add multiple songs to the queue in batch"""
     room = room_manager.get_room(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")

@@ -66,6 +66,15 @@ interface Room {
     autoplay: boolean
 }
 
+interface QuickPlaySong {
+    id: string
+    title: string
+    channel: string
+    thumbnail: string
+    type: string
+    lang_tag?: string
+}
+
 export default function RoomPage() {
     const params = useParams()
     const searchParams = useSearchParams()
@@ -81,6 +90,11 @@ export default function RoomPage() {
     const [songDownloading, setSongDownloading] = useState(false)
     const [hasUserInteractedWithPlayButton, setHasUserInteractedWithPlayButton] = useState(false)
     const [autoplayEnabled, setAutoplayEnabled] = useState(false)
+
+    // Quick Play state
+    const [quickPlaySongs, setQuickPlaySongs] = useState<QuickPlaySong[]>([])
+    const [quickPlayLoading, setQuickPlayLoading] = useState(false)
+    const [quickPlayAdding, setQuickPlayAdding] = useState<string | null>(null)
 
     const handleErrorModalClose = () => {
         setShowErrorModal(false)
@@ -135,17 +149,152 @@ export default function RoomPage() {
         window.open(liffUrl, "_blank");
     }
 
+    // Fetch quick play songs when room is empty
+    const fetchQuickPlaySongs = useCallback(async () => {
+        if (quickPlaySongs.length > 0) return // Already have songs
+
+        setQuickPlayLoading(true)
+        try {
+            const response = await fetch(API_ENDPOINTS.QUICK_PLAY(roomId))
+            if (response.ok) {
+                const data = await response.json()
+                setQuickPlaySongs(data.songs || [])
+            }
+        } catch (error) {
+            console.error("Failed to fetch quick play songs:", error)
+        } finally {
+            setQuickPlayLoading(false)
+        }
+    }, [roomId, quickPlaySongs.length])
+
+    // Add quick play song to queue
+    const addQuickPlaySong = async (song: QuickPlaySong) => {
+        if (quickPlayAdding) return // Already adding a song
+
+        setQuickPlayAdding(song.id)
+        setHasUserInteractedWithPlayButton(true)
+        hasUserInteractedWithPlayButtonRef.current = true
+
+        try {
+            const userName = room?.members.find(m => m.user_id === userId)?.user_name || "User"
+
+            const response = await fetch(
+                `${API_ENDPOINTS.ADD_SONG(roomId)}?user_id=${encodeURIComponent(userId)}&user_name=${encodeURIComponent(userName)}`,
+                {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({
+                        video_id: song.id,
+                        title: song.title,
+                        channel: song.channel,
+                        duration: 0, // Will be fetched by backend
+                        thumbnail: song.thumbnail
+                    })
+                }
+            )
+
+            if (!response.ok) {
+                throw new Error("Failed to add song")
+            }
+
+            // Song will be added via WebSocket, clear quick play songs to show player
+            setQuickPlaySongs([])
+        } catch (error) {
+            console.error("Failed to add quick play song:", error)
+            setAudioError("新增歌曲失敗，請重試")
+        } finally {
+            setQuickPlayAdding(null)
+        }
+    }
+
     useEffect(() => {
         roomRef.current = room
-    }, [room])
-
-    useEffect(() => {
         audioErrorRef.current = audioError
-    }, [audioError])
-
-    useEffect(() => {
         songDownloadingRef.current = songDownloading
-    }, [songDownloading])
+
+        // Fetch quick play songs when room has no current song and no queue
+        if (room && !room.current_song && room.queue.length === 0 && quickPlaySongs.length === 0 && !quickPlayLoading) {
+            fetchQuickPlaySongs()
+        }
+    }, [room, audioError, songDownloading, fetchQuickPlaySongs, quickPlaySongs.length, quickPlayLoading])
+
+    // Quick Play Grid Component
+    const QuickPlayGrid = () => {
+        if (quickPlayLoading) {
+            return (
+                <div className="flex flex-col items-center justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-white/60 mb-4"/>
+                    <p className="text-white/60">載入推薦歌曲中...</p>
+                </div>
+            )
+        }
+
+        if (quickPlaySongs.length === 0) {
+            return (
+                <div className="text-center text-white/60 py-8">
+                    <Music className="h-12 w-12 mx-auto mb-4 opacity-50" strokeWidth={2}/>
+                    <p>目前沒有播放歌曲</p>
+                    <p className="text-sm mt-2">透過 LINE Bot 點歌開始播放</p>
+                </div>
+            )
+        }
+
+        return (
+            <div className="space-y-3">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-white font-bold text-lg ml-1.5">快速播放</h2>
+                    <svg
+                        className="w-5 h-5 text-white/60 mr-1"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                    >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </div>
+
+                {/* Grid of songs */}
+                <div className="grid grid-cols-3 gap-2">
+                    {quickPlaySongs.slice(0, 9).map((song) => (
+                        <button
+                            key={song.id}
+                            onClick={() => addQuickPlaySong(song)}
+                            disabled={quickPlayAdding !== null}
+                            className="relative aspect-square rounded-lg overflow-hidden group focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50"
+                        >
+                            <img
+                                src={song.thumbnail || "/placeholder.jpg"}
+                                alt={song.title}
+                                className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105 group-active:scale-95"
+                            />
+                            {/* Gradient overlay */}
+                            <div
+                                className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"/>
+
+                            {/* Song title at bottom */}
+                            <div className="absolute bottom-0 left-0 right-0 p-2">
+                                <p className="text-white text-xs font-medium text-left line-clamp-2 leading-tight">
+                                    {song.title}
+                                </p>
+                            </div>
+
+                            {/* Loading indicator when this song is being added */}
+                            {quickPlayAdding === song.id && (
+                                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                    <Loader2 className="h-6 w-6 animate-spin text-white"/>
+                                </div>
+                            )}
+
+                            {/* Hover/active overlay */}
+                            <div
+                                className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity"/>
+                        </button>
+                    ))}
+                </div>
+            </div>
+        )
+    }
 
     useEffect(() => {
         hasUserInteractedWithPlayButtonRef.current = hasUserInteractedWithPlayButton
@@ -1661,11 +1810,7 @@ export default function RoomPage() {
                                     </div>
                                 </>
                             ) : (
-                                <div className="text-center text-white/60 py-8">
-                                    <Music className="h-12 w-12 mx-auto mb-4 opacity-50" strokeWidth={2}/>
-                                    <p>目前沒有播放歌曲</p>
-                                    <p className="text-sm mt-2">透過 LINE Bot 點歌開始播放</p>
-                                </div>
+                                <QuickPlayGrid/>
                             )}
                         </CardContent>
                     </Card>

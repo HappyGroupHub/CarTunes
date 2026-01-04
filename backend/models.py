@@ -120,6 +120,7 @@ class Room(BaseModel):
     active_connections: int = 0  # Number of active WebSocket connections
     autoplay: bool = True
     autoplay_playlist: List[Dict[str, Any]] = []
+    quick_play_songs: List[Dict[str, Any]] = []  # Pre-fetched quick play songs
 
 
 # Response Models
@@ -133,6 +134,7 @@ class RoomResponse(BaseModel):
     playback_state: dict
     active_users: int
     autoplay: bool
+    quick_play_songs: List[dict] = []
 
 
 class AddSongResponse(BaseModel):

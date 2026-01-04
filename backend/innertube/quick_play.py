@@ -5,7 +5,7 @@ from typing import List, Dict, Optional, Any
 import httpx
 
 import utilities as utils
-from audio_extractor import get_audio_stream_info
+from innertube.audio_extractor import get_audio_stream_info
 
 config = utils.read_config()
 
