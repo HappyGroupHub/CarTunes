@@ -1719,11 +1719,19 @@ async def cleanup_all_rich_menus():
 
             # Delete all existing rich menus (this will also unlink them from users)
             for rich_menu in rich_menus.richmenus:
-                try:
-                    await line_bot_api.delete_rich_menu(rich_menu.rich_menu_id)
-                    print(f"Deleted rich menu: {rich_menu.rich_menu_id}")
-                except Exception as e:
-                    print(f"Error deleting rich menu {rich_menu.rich_menu_id}: {e}")
+                delete_successfully = False
+                while not delete_successfully:
+                    try:
+                        await line_bot_api.delete_rich_menu(rich_menu.rich_menu_id)
+                        delete_successfully = True
+                        print(f"Deleted rich menu: {rich_menu.rich_menu_id}")
+                    except Exception as e:
+                        if "429" in str(e):
+                            print("Rate limit reached. Waiting 30 seconds before retrying...")
+                            await asyncio.sleep(30)
+                        else:
+                            print(f"(Skip) Error deleting rich menu{rich_menu.rich_menu_id}: {e}")
+                            delete_successfully = True  # Exit loop on other errors
 
         except Exception as e:
             print(f"Error during rich menu cleanup: {e}")
