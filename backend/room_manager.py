@@ -74,6 +74,7 @@ class RoomManager:
         self.user_rooms[user_id] = room_id
 
         logger.info(f"Room {room_id} created by user {user_id}")
+        self.start_cleanup_timer(room_id, is_new_room=True)
         return room
 
     def can_create_room(self) -> bool:
@@ -576,11 +577,6 @@ class RoomManager:
                     except Exception as e:
                         logger.error(
                             f"Error removing user {member.user_id} from room {room_id}: {e}")
-                    try:  # Unlink rich menu from user
-                        from line_bot import unlink_rich_menu_from_user
-                        await unlink_rich_menu_from_user(member.user_id)
-                    except Exception as e:
-                        logger.error(f"Error removing rich menu for user {member.user_id}: {e}")
 
                 # Cancel pause timer if exists
                 self.cancel_pause_timer(room_id)
@@ -597,15 +593,20 @@ class RoomManager:
             logger.error(f"Error in cleanup timer for room {room_id}: {e}")
             self.cleanup_timers.pop(room_id, None)
 
-    def start_cleanup_timer(self, room_id: str):
-        """Start cleanup timer when room has no connections"""
+    def start_cleanup_timer(self, room_id: str, is_new_room: bool = False):
+        """Start cleanup timer when room has no connections
+
+        :param room_id: ID of the room to start timer for
+        :param is_new_room: There's no need to log countdown if the room was newly created
+        """
         # Cancel existing timer if any
         self.cancel_cleanup_timer(room_id)
 
         delay_seconds = config['room_cleanup_after_inactivity'] * 60  # Convert minutes to seconds
         timer_task = asyncio.create_task(self._cleanup_timer_task(room_id, delay_seconds))
         self.cleanup_timers[room_id] = timer_task
-        logger.info(f"Started cleanup timer for room {room_id} ({delay_seconds}s)")
+        if not is_new_room:
+            logger.info(f"Started cleanup timer for room {room_id} ({delay_seconds}s)")
 
     def cancel_cleanup_timer(self, room_id: str):
         """Cancel cleanup timer when room gets connections"""

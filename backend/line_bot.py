@@ -328,8 +328,11 @@ async def clear_user_rooms(request: Request, user_id: str):
     if client_ip != "127.0.0.1":
         raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
 
+    # Clear local user_rooms tracking
     if user_id in user_rooms:
         del user_rooms[user_id]
+
+    await unlink_rich_menu_from_user(user_id)
 
 
 # ===== Handel Message Event =====
@@ -1707,11 +1710,13 @@ async def unlink_rich_menu_from_user(user_id: str):
     async with AsyncApiClient(configuration) as api_client:
         line_bot_api = AsyncMessagingApi(api_client)
         await line_bot_api.unlink_rich_menu_id_from_user(user_id)
-        try:
-            await line_bot_api.delete_rich_menu(user_rich_menus[user_id])
-        except Exception as e:
-            print(f"Error deleting rich menu {user_rich_menus[user_id]}: {e}")
-        del user_rich_menus[user_id]
+
+        rich_menu_id = user_rich_menus.get(user_id, None)
+        if rich_menu_id:
+            try:
+                await line_bot_api.delete_rich_menu(user_rich_menus[user_id])
+            except Exception as e:
+                print(f"Error deleting rich menu {user_rich_menus[user_id]}: {e}")
 
 
 async def cleanup_all_rich_menus():
