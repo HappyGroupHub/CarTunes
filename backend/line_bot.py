@@ -38,6 +38,10 @@ async_handler = AsyncWebhookHandler(config['line_channel_secret'])
 # Dictionary to track user rooms - key: user_id, value: room_id
 user_rooms = {}
 
+# Dictionary to track user rich menus - key: user_id, value: rich_menu_id
+# This is used to delete rich menus when a user leaves room
+user_rich_menus = {}
+
 # Cache for storing search results when postback data is too long
 # Key: video_id, Value: search result data
 postback_cache: Dict[str, Dict[str, Any]] = {}
@@ -1149,7 +1153,6 @@ async def handle_message(event):
 
                 if success:
                     reply_message = create_room_created_flex_message(result)
-                    print(reply_message)
                 else:
                     if result == "Forbidden: Internal use only":
                         reply_message = TextMessage(text="建立房間時發生錯誤，請稍後再試。")
@@ -1696,6 +1699,7 @@ async def link_roomed_rich_menu(user_id: str, room_id: str):
                 _headers={'Content-Type': 'image/png'}
             )
         await line_bot_api.link_rich_menu_id_to_user(user_id, rich_menu_id)
+        user_rich_menus[user_id] = rich_menu_id
 
 
 async def unlink_rich_menu_from_user(user_id: str):
@@ -1703,6 +1707,11 @@ async def unlink_rich_menu_from_user(user_id: str):
     async with AsyncApiClient(configuration) as api_client:
         line_bot_api = AsyncMessagingApi(api_client)
         await line_bot_api.unlink_rich_menu_id_from_user(user_id)
+        try:
+            await line_bot_api.delete_rich_menu(user_rich_menus[user_id])
+        except Exception as e:
+            print(f"Error deleting rich menu {user_rich_menus[user_id]}: {e}")
+        del user_rich_menus[user_id]
 
 
 async def cleanup_all_rich_menus():
