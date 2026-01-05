@@ -31,7 +31,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via click
 deprecated==1.2.18
     # via line-bot-sdk
-fastapi==0.124.4
+fastapi==0.128.0
     # via cartunes
 frozenlist==1.7.0
     # via
@@ -96,7 +96,7 @@ urllib3==2.5.0
     # via
     #   line-bot-sdk
     #   requests
-uvicorn==0.38.0
+uvicorn==0.40.0
     # via cartunes
 websockets==15.0.1
     # via cartunes
