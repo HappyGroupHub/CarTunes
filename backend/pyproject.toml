@@ -12,6 +12,6 @@ dependencies = [
     "pyyaml~=6.0.2",
     "requests~=2.32.4",
     "uvicorn~=0.40.0",
-    "websockets~=15.0.1",
+    "websockets~=16.0.0",
     "yt-dlp==2025.12.8",
 ]
