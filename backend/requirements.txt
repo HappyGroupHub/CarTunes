@@ -74,7 +74,7 @@ python-dateutil==2.9.0.post0
     # via line-bot-sdk
 pyyaml==6.0.2
     # via cartunes
-requests==2.32.4
+requests==2.33.1
     # via
     #   cartunes
     #   line-bot-sdk
