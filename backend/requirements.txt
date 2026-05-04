@@ -98,7 +98,7 @@ urllib3==2.5.0
     #   requests
 uvicorn==0.40.0
     # via cartunes
-websockets==15.0.1
+websockets==16.0
     # via cartunes
 wrapt==1.17.2
     # via deprecated
