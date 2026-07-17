@@ -31,7 +31,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via click
 deprecated==1.2.18
     # via line-bot-sdk
-fastapi==0.128.0
+fastapi==0.129.0
     # via cartunes
 frozenlist==1.7.0
     # via
@@ -91,7 +91,9 @@ typing-extensions==4.14.1
     #   pydantic-core
     #   typing-inspection
 typing-inspection==0.4.2
-    # via pydantic
+    # via
+    #   fastapi
+    #   pydantic
 urllib3==2.5.0
     # via
     #   line-bot-sdk
