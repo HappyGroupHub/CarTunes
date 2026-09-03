@@ -39,7 +39,7 @@ synchronized in real-time.
 - **🎵 Smart Autoplay** - Automatically queues recommended songs when playlist ends
 - **🏠 Room System** - Create private rooms with 6-character codes to share with friends
 
-![Demo](./readme_imgs/demo.gif)
+<img src="./readme_imgs/demo.gif" alt="Demo" width="700" />
 
 ---
 
@@ -253,7 +253,7 @@ CarTunes 是一個即時協作音樂播放系統，專為公路旅行、派對�
 - **🎵 智慧自動播放** - 播放清單結束時自動加入推薦歌曲
 - **🏠 房間系統** - 建立私人房間，使用 6 字元代碼與朋友分享
 
-![Demo](./readme_imgs/demo.gif)
+<img src="./readme_imgs/demo.gif" alt="Demo" width="700" />
 
 ---
 
