@@ -16,7 +16,7 @@
 			"ppa": true,
 			"version": "lts"
 		},
-        "ghcr.io/devcontainers/features/node:1": {
+        "ghcr.io/devcontainers/features/node:2": {
 			"nodeGypDependencies": true,
 			"version": "24.13.0"
 		},
