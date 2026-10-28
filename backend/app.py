@@ -29,7 +29,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 config = utils.read_config()
-room_manager = RoomManager(config['maximum_room'])
+room_manager = RoomManager(config['maximum_room'], config['maximum_members_per_room'])
 ws_manager = ConnectionManager()
 audio_cache_manager = AudioCacheManager(config['max_cache_size_mb'], config['cache_duration_hours'], 
                                         config['audio_quality_kbps'], config['loudness_normalization'])
@@ -366,6 +366,10 @@ async def join_room(request_object: Request, request: JoinRoomRequest):
     client_ip = request_object.client.host
     if client_ip != "127.0.0.1":
         raise HTTPException(status_code=403, detail="Forbidden: Internal use only")
+
+    if request.room_id in room_manager.rooms and \
+            not room_manager.can_join_room(request.room_id, request.user_id):
+        raise HTTPException(status_code=403, detail="Forbidden: Reached maximum member limit")
 
     room = room_manager.join_room(
         room_id=request.room_id,

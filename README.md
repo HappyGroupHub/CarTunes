@@ -160,6 +160,8 @@ max_playlist_songs: 20           # Maximum songs for playlist import
 numeric_room_code: false         # Use numbers-only room codes
 pause_music_after_no_connections: 10  # Auto-pause delay
 room_cleanup_after_inactivity: 120    # Room deletion timeout
+maximum_room: 10                 # Max rooms the server can host
+maximum_members_per_room: 10     # Max members per room (0 = unlimited)
 
 # Autoplay Settings
 autoplay_default: true           # Enable autoplay by default
@@ -374,6 +376,8 @@ max_playlist_songs: 20           # 播放清單匯入的最大歌曲數量
 numeric_room_code: false         # 使用純數字房間代碼
 pause_music_after_no_connections: 10  # 自動暫停延遲
 room_cleanup_after_inactivity: 120    # 房間刪除逾時
+maximum_room: 10                 # 伺服器可建立的房間上限
+maximum_members_per_room: 10     # 每個房間的成員上限（0 為不限制）
 
 # 自動播放設定
 autoplay_default: true           # 預設啟用自動播放

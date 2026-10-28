@@ -19,12 +19,13 @@ config = utils.read_config()
 
 
 class RoomManager:
-    def __init__(self, maximum_room: int = 10):
+    def __init__(self, maximum_room: int = 10, maximum_members_per_room: int = 10):
         self.rooms: Dict[str, Room] = {}
         self.user_rooms: Dict[str, str] = {}  # user_id -> room_id
         self.pause_timers: Dict[str, asyncio.Task] = {}  # room_id -> timer task
         self.cleanup_timers: Dict[str, asyncio.Task] = {}  # room_id -> cleanup timer task
         self.maximum_room = maximum_room
+        self.maximum_members_per_room = maximum_members_per_room
 
     # ===== Room Creation =====
 
@@ -79,6 +80,20 @@ class RoomManager:
 
     def can_create_room(self) -> bool:
         return len(self.rooms) < self.maximum_room
+
+    def can_join_room(self, room_id: str, user_id: str) -> bool:
+        """Check if user can join the room without exceeding the member limit.
+
+        Existing members are always allowed to rejoin. A limit of 0 or less means unlimited.
+        """
+        room = self.rooms.get(room_id)
+        if not room:
+            return False
+        if any(m.user_id == user_id for m in room.members):
+            return True
+        if self.maximum_members_per_room <= 0:
+            return True
+        return len(room.members) < self.maximum_members_per_room
 
     # ===== Room Information =====
 
