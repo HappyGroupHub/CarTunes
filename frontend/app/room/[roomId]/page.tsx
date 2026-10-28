@@ -1,80 +1,20 @@
 "use client"
 
-import React from "react"
-
 import {useEffect, useState, useRef, useCallback} from "react"
 import {useParams, useSearchParams, useRouter} from "next/navigation"
-import {Button} from "@/components/ui/button"
 import {Card, CardContent} from "@/components/ui/card"
-import {Progress} from "@/components/ui/progress"
-import {Badge} from "@/components/ui/badge"
-import {
-    Play,
-    Pause,
-    SkipForward,
-    Music,
-    User,
-    Users,
-    Wifi,
-    WifiOff,
-    Trash2,
-    AlertCircle,
-    Loader2,
-    Download,
-    VolumeX,
-    Volume2,
-    ArrowUpNarrowWide,
-    Check,
-    Share2
-} from "lucide-react"
+import {AlertCircle, Check, Music} from "lucide-react"
 import {useWebSocket} from "@/hooks/use-websocket"
-import {formatTime} from "@/lib/utils"
-import {Modal} from "@/components/ui/modal"
+import {useStatusMessage} from "@/hooks/use-status-message"
 import {API_ENDPOINTS, LINE_CONFIG} from "@/lib/config"
 import {loadAudio} from "@/lib/audio-loader"
-import {AutoplayToggle} from "@/components/autoplay-toggle"
-
-interface Song {
-    id: string
-    video_id: string
-    title: string
-    channel?: string
-    duration: number
-    thumbnail?: string
-    requester_id: string
-    requester_name: string
-    added_at: string
-}
-
-interface PlaybackState {
-    is_playing: boolean
-    current_time: number
-    last_updated: string
-}
-
-interface Room {
-    room_id: string
-    members: Array<{
-        user_id: string
-        user_name: string
-        joined_at: string
-    }>
-    queue: Song[]
-    current_song: Song | null
-    playback_state: PlaybackState
-    active_users: number
-    autoplay: boolean
-}
-
-interface QuickPlaySong {
-    id: string
-    title: string
-    channel: string
-    thumbnail: string
-    type: string
-    duration: number
-    lang_tag?: string
-}
+import {RoomHeader} from "@/components/room/room-header"
+import {NowPlaying} from "@/components/room/now-playing"
+import {QuickPlayGrid} from "@/components/room/quick-play-grid"
+import {QueueList} from "@/components/room/queue-list"
+import {MemberList} from "@/components/room/member-list"
+import {MessageModal, RefreshModal} from "@/components/room/room-modals"
+import type {QuickPlaySong, Room} from "@/types/room"
 
 export default function RoomPage() {
     const params = useParams()
@@ -108,12 +48,7 @@ export default function RoomPage() {
     const [modalAction, setModalAction] = useState<() => void>(() => handleErrorModalClose);
 
     const [isMuted, setIsMuted] = useState(false)
-    const [statusMessage, setStatusMessage] = useState<string | null>(null)
-    const [statusMessageOpacity, setStatusMessageOpacity] = useState(1)
-    const [statusIconComponent, setStatusIconComponent] = useState<React.ElementType | null>(null)
-    const [statusMessageColor, setStatusMessageColor] = useState<string>("")
-    const [isMuteButtonHidden, setIsMuteButtonHidden] = useState(false)
-    const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+    const {message: statusMessage, opacity: statusMessageOpacity, showMessage} = useStatusMessage()
 
     const audioRef = useRef<HTMLAudioElement>(null)
     const silentAudioRef = useRef<HTMLAudioElement>(null)
@@ -126,12 +61,6 @@ export default function RoomPage() {
     const audioErrorRef = useRef<string | null>(null)
     const songDownloadingRef = useRef<boolean>(false)
     const hasUserInteractedWithPlayButtonRef = useRef<boolean>(false)
-
-    // State for swipe-to-delete
-    const [swipedSongId, setSwipedSongId] = useState<string | null>(null)
-    const touchStartX = useRef(0)
-    const touchCurrentX = useRef(0)
-    const swipeThreshold = 50 // Pixels to swipe to reveal delete button
 
     // State for audio status checking
     const [audioStatusChecking, setAudioStatusChecking] = useState<Set<string>>(new Set())
@@ -221,84 +150,6 @@ export default function RoomPage() {
             fetchQuickPlaySongs()
         }
     }, [room, audioError, songDownloading, fetchQuickPlaySongs, quickPlaySongs.length, quickPlayLoading])
-
-    // Quick Play Grid Component
-    const QuickPlayGrid = () => {
-        if (quickPlayLoading) {
-            return (
-                <div className="flex flex-col items-center justify-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin text-white/60 mb-4"/>
-                    <p className="text-white/60">載入推薦歌曲中...</p>
-                </div>
-            )
-        }
-
-        if (quickPlaySongs.length === 0) {
-            return (
-                <div className="text-center text-white/60 py-8">
-                    <Music className="h-12 w-12 mx-auto mb-4 opacity-50" strokeWidth={2}/>
-                    <p>目前沒有播放歌曲</p>
-                    <p className="text-sm mt-2">透過 LINE Bot 點歌開始播放</p>
-                </div>
-            )
-        }
-
-        return (
-            <div className="space-y-3">
-                {/* Header */}
-                <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-white font-bold text-lg ml-1.5">快速播放</h2>
-                    <svg
-                        className="w-5 h-5 text-white/60 mr-1"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </div>
-
-                {/* Grid of songs */}
-                <div className="grid grid-cols-3 gap-2">
-                    {quickPlaySongs.slice(0, 9).map((song) => (
-                        <button
-                            key={song.id}
-                            onClick={() => addQuickPlaySong(song)}
-                            disabled={quickPlayAdding !== null}
-                            className="relative aspect-square rounded-lg overflow-hidden group focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50"
-                        >
-                            <img
-                                src={song.thumbnail || "/placeholder.jpg"}
-                                alt={song.title}
-                                className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105 group-active:scale-95"
-                            />
-                            {/* Gradient overlay */}
-                            <div
-                                className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"/>
-
-                            {/* Song title at bottom */}
-                            <div className="absolute bottom-0 left-0 right-0 p-2">
-                                <p className="text-white text-xs font-medium text-left line-clamp-2 leading-tight">
-                                    {song.title}
-                                </p>
-                            </div>
-
-                            {/* Loading indicator when this song is being added */}
-                            {quickPlayAdding === song.id && (
-                                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                                    <Loader2 className="h-6 w-6 animate-spin text-white"/>
-                                </div>
-                            )}
-
-                            {/* Hover/active overlay */}
-                            <div
-                                className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity"/>
-                        </button>
-                    ))}
-                </div>
-            </div>
-        )
-    }
 
     useEffect(() => {
         hasUserInteractedWithPlayButtonRef.current = hasUserInteractedWithPlayButton
@@ -673,6 +524,7 @@ export default function RoomPage() {
                             queue: [...prev.queue, ...data.data.songs],
                         }
                     })
+                    break
 
                 case "SONG_REMOVED":
                     setRoom((prev) =>
@@ -1283,7 +1135,6 @@ export default function RoomPage() {
             await fetch(`${API_ENDPOINTS.REMOVE_SONG(roomId, songId)}?user_id=${userId}`, {
                 method: "DELETE",
             })
-            setSwipedSongId(null) // Close swipe after deletion
         } catch (err) {
             console.error("Failed to remove song:", err)
         }
@@ -1369,30 +1220,11 @@ export default function RoomPage() {
             const newState = !isMuted
             audioRef.current.muted = newState
             setIsMuted(newState)
-
-            // Clear any existing timeout
-            if (messageTimeoutRef.current) {
-                clearTimeout(messageTimeoutRef.current)
-            }
-
-            const message = newState ? "靜音本地播放" : "解除本地靜音"
-            setStatusMessage(message)
-            setStatusMessageColor(newState ? "text-red-500" : "text-green-400")
-            setStatusMessageOpacity(1)
-            setIsMuteButtonHidden(true) // Hide mute button
-
-            // Set timeout to start fading after 2.5 seconds
-            messageTimeoutRef.current = setTimeout(() => {
-                setStatusMessageOpacity(0)
-            }, 2500)
-
-            // Set timeout to clear message and show button again after 3 seconds
-            messageTimeoutRef.current = setTimeout(() => {
-                setStatusMessage(null)
-                setStatusMessageColor("")
-                setStatusMessageOpacity(1)
-                setIsMuteButtonHidden(false) // Show mute button again
-            }, 3000)
+            showMessage(
+                newState ? "靜音本地播放" : "解除本地靜音",
+                newState ? "text-red-500" : "text-green-400",
+                {hidesMuteButton: true},
+            )
         }
     }
 
@@ -1437,130 +1269,16 @@ export default function RoomPage() {
     const copyRoomId = async () => {
         if (!roomId) return
 
+        if (!navigator.clipboard) {
+            showMessage("網頁不支援複製", "text-red-500", {icon: AlertCircle})
+            return
+        }
         try {
-            if (!navigator.clipboard) {
-                if (messageTimeoutRef.current) {
-                    clearTimeout(messageTimeoutRef.current)
-                }
-                setStatusMessage("網頁不支援複製")
-                setStatusIconComponent(AlertCircle)
-                setStatusMessageColor("text-red-500")
-                setStatusMessageOpacity(1)
-                messageTimeoutRef.current = setTimeout(() => {
-                    setStatusMessageOpacity(0)
-                }, 2500)
-                messageTimeoutRef.current = setTimeout(() => {
-                    setStatusMessage(null)
-                    setStatusIconComponent(null)
-                    setStatusMessageColor("")
-                    setStatusMessageOpacity(1)
-                }, 3000)
-                return
-            }
             await navigator.clipboard.writeText(roomId)
-            if (messageTimeoutRef.current) {
-                clearTimeout(messageTimeoutRef.current)
-            }
-            setStatusMessage("複製房間代碼")
-            setStatusIconComponent(Check)
-            setStatusMessageColor("text-green-400")
-            setStatusMessageOpacity(1)
-            messageTimeoutRef.current = setTimeout(() => {
-                setStatusMessageOpacity(0)
-            }, 2500)
-            messageTimeoutRef.current = setTimeout(() => {
-                setStatusMessage(null)
-                setStatusIconComponent(null)
-                setStatusMessageColor("")
-                setStatusMessageOpacity(1)
-            }, 3000)
+            showMessage("複製房間代碼", "text-green-400", {icon: Check})
         } catch (err) {
             console.error("Failed to copy room ID:", err)
-            if (messageTimeoutRef.current) {
-                clearTimeout(messageTimeoutRef.current)
-            }
-            setStatusMessage("複製失敗")
-            setStatusIconComponent(AlertCircle)
-            setStatusMessageColor("text-red-500")
-            setStatusMessageOpacity(1)
-            messageTimeoutRef.current = setTimeout(() => {
-                setStatusMessageOpacity(0)
-            }, 2500)
-            messageTimeoutRef.current = setTimeout(() => {
-                setStatusMessage(null)
-                setStatusIconComponent(null)
-                setStatusMessageColor("")
-                setStatusMessageOpacity(1)
-            }, 3000)
-        }
-    }
-
-    // Swipe handlers
-    const handleTouchStart = (e: React.TouchEvent, songId: string) => {
-        setSwipedSongId(null) // Close any currently swiped item
-        touchStartX.current = e.touches[0].clientX
-        touchCurrentX.current = e.touches[0].clientX
-    }
-
-    const handleTouchMove = (e: React.TouchEvent, songId: string) => {
-        touchCurrentX.current = e.touches[0].clientX
-        const deltaX = touchCurrentX.current - touchStartX.current
-
-        if (deltaX < -swipeThreshold) {
-            // Swiping left
-            setSwipedSongId(songId)
-        } else if (deltaX > swipeThreshold) {
-            // Swiping right
-            setSwipedSongId(null)
-        }
-    }
-
-    const handleTouchEnd = (songId: string) => {
-        const deltaX = touchCurrentX.current - touchStartX.current
-        if (Math.abs(deltaX) < swipeThreshold) {
-            setSwipedSongId(null) // Close if not swiped enough
-        }
-        touchStartX.current = 0 // Reset for next interaction
-        touchCurrentX.current = 0 // Reset currentX as well
-    }
-
-    // Mouse handlers for desktop (simulating touch)
-    const handleMouseDown = (e: React.MouseEvent, songId: string) => {
-        setSwipedSongId(null) // Close any currently swiped item
-        touchStartX.current = e.clientX
-        touchCurrentX.current = e.clientX
-    }
-
-    const handleMouseMove = (e: React.MouseEvent, songId: string) => {
-        if (touchStartX.current !== 0) {
-            // Only if drag started
-            touchCurrentX.current = e.clientX
-            const deltaX = touchCurrentX.current - touchStartX.current
-            if (deltaX < -swipeThreshold) {
-                setSwipedSongId(songId)
-            } else if (deltaX > swipeThreshold) {
-                setSwipedSongId(null)
-            }
-        }
-    }
-
-    const handleMouseUp = () => {
-        if (touchStartX.current !== 0) {
-            const deltaX = touchCurrentX.current - touchStartX.current
-            if (Math.abs(deltaX) < swipeThreshold) {
-                setSwipedSongId(null)
-            }
-            touchStartX.current = 0 // Reset for next drag
-            touchCurrentX.current = 0 // Reset currentX as well
-        }
-    }
-
-    const handleMouseLeave = () => {
-        // Reset if mouse leaves while dragging
-        if (touchStartX.current !== 0) {
-            setSwipedSongId(null)
-            touchStartX.current = 0
-            touchCurrentX.current = 0
+            showMessage("複製失敗", "text-red-500", {icon: AlertCircle})
         }
     }
 
@@ -1579,26 +1297,15 @@ export default function RoomPage() {
     if (!room) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600">
-                <Modal
+                <MessageModal
                     isOpen={showErrorModal}
-                    onClose={modalAction}
-                    title="提示"
-                >
-                    <div className="text-center py-2">
-                        <div
-                            className="text-gray-700 mb-4"
-                            dangerouslySetInnerHTML={{__html: errorMessage}}
-                        />
-                        <Button onClick={modalAction} className="w-full">
-                            {modalButtonText}
-                        </Button>
-                    </div>
-                </Modal>
+                    message={errorMessage}
+                    buttonText={modalButtonText}
+                    onAction={modalAction}
+                />
             </div>
         )
     }
-
-    const progress = room.current_song ? (currentTime / room.current_song.duration) * 100 : 0
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600">
@@ -1614,115 +1321,25 @@ export default function RoomPage() {
                 style={{display: 'none'}}
             />
 
-
-            {/* Error Modal */}
-            <Modal
+            <MessageModal
                 isOpen={showErrorModal}
-                onClose={modalAction}
-                title="提示"
-            >
-                <div className="text-center py-2">
-                    <div
-                        className="text-gray-700 mb-4"
-                        dangerouslySetInnerHTML={{__html: errorMessage}}
-                    />
-                    <Button onClick={modalAction} className="w-full">
-                        {modalButtonText}
-                    </Button>
-                </div>
-            </Modal>
+                message={errorMessage}
+                buttonText={modalButtonText}
+                onAction={modalAction}
+            />
+            <RefreshModal isOpen={showRefreshModal} onClose={() => setShowRefreshModal(false)}/>
 
-            <Modal
-                isOpen={showRefreshModal}
-                onClose={() => setShowRefreshModal(false)}
-                title="提示"
-            >
-                <div className="bg-white rounded-lg p-6 max-w-md mx-auto">
-                    <div className="flex items-center mb-4">
-                        <AlertCircle className="h-6 w-6 text-red-500 mr-2"/>
-                        <h2 className="text-lg font-semibold">音訊播放問題</h2>
-                    </div>
-                    <p className="text-gray-600 mb-4">
-                        音訊播放持續失敗，可能是網路問題或瀏覽器限制。
-                        請重新整理頁面再試一次。
-                    </p>
-                    <div className="flex space-x-3">
-                        <Button
-                            onClick={() => window.location.reload()}
-                            className="flex-1"
-                        >
-                            重新整理頁面
-                        </Button>
-                        <Button
-                            variant="outline"
-                            onClick={() => setShowRefreshModal(false)}
-                            className="flex-1"
-                        >
-                            繼續嘗試
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
-
-            {/* Header */}
-            <div className="bg-black/20 backdrop-blur-sm p-4">
-                <div className="flex items-center justify-between max-w-md mx-auto">
-                    <div className="flex items-center space-x-2">
-                        {/* Make this whole div clickable for copying room ID */}
-                        <div
-                            onClick={copyRoomId}
-                            className="flex items-center space-x-2 cursor-pointer active:bg-white/10 md:hover:bg-white/10 p-1 rounded-md transition-colors"
-                        >
-                            <Music className="h-6 w-6 text-white" strokeWidth={2}/>
-                            <span className="text-white font-semibold">房間 {roomId}</span>
-                        </div>
-
-                        <Button
-                            onClick={handleShare}
-                            size="icon"
-                            variant="ghost"
-                            className="text-white active:bg-white/20 md:hover:bg-white/20 w-8 h-8 flex-shrink-0 p-0"
-                        >
-                            <Share2 className="h-4 w-4"/>
-                        </Button>
-
-                        {/* Mute Button - hidden while status message is showing */}
-                        {!isMuteButtonHidden && (
-                            <Button
-                                onClick={toggleMute}
-                                size="icon"
-                                variant="ghost"
-                                className={`${isMuted ? "text-red-500 active:bg-red-500/20 md:hover:bg-red-500/20" : "text-white active:bg-white/20 md:hover:bg-white/20"} w-8 h-8`}
-                                aria-label={isMuted ? "Unmute audio" : "Mute audio"}
-                            >
-                                {isMuted ? <VolumeX className="h-4 w-4"/> : <Volume2 className="h-4 w-4"/>}
-                            </Button>
-                        )}
-
-                        {/* Status Message (replaces mute message) */}
-                        {statusMessage && (
-                            <span
-                                className={`${statusMessageColor} flex items-center text-sm ml-2 transition-opacity duration-500 ease-out`}
-                                style={{opacity: statusMessageOpacity}}
-                            >
-                {statusIconComponent && React.createElement(statusIconComponent, {className: "h-4 w-4 mr-1"})}
-                                {statusMessage}
-              </span>
-                        )}
-                    </div>
-                    <div className="flex items-center space-x-2">
-                        {isConnected ? (
-                            <Wifi className="h-4 w-4 text-green-400" strokeWidth={2}/>
-                        ) : (
-                            <WifiOff className="h-4 w-4 text-red-400" strokeWidth={2}/>
-                        )}
-                        <Badge variant="secondary" className="bg-white/20 text-white">
-                            <Users className="h-3 w-3 mr-1" strokeWidth={2}/>
-                            {room.active_users}
-                        </Badge>
-                    </div>
-                </div>
-            </div>
+            <RoomHeader
+                roomId={roomId}
+                activeUsers={room.active_users}
+                isConnected={isConnected}
+                isMuted={isMuted}
+                statusMessage={statusMessage}
+                statusMessageOpacity={statusMessageOpacity}
+                onCopyRoomId={copyRoomId}
+                onShare={handleShare}
+                onToggleMute={toggleMute}
+            />
 
             <div
                 className={`transition-all duration-300 ${!isConnected ? 'blur-sm pointer-events-none opacity-50' : ''}`}>
@@ -1731,241 +1348,41 @@ export default function RoomPage() {
                     <Card className="bg-white/10 backdrop-blur-sm border-white/20">
                         <CardContent className="p-3 flex flex-col">
                             {room.current_song ? (
-                                <>
-                                    <div className="flex items-center mb-3">
-                                        {/* Song Thumbnail */}
-                                        {room.current_song.thumbnail && (
-                                            <img
-                                                src={room.current_song.thumbnail || "/placeholder.jpg"}
-                                                alt={room.current_song.title}
-                                                className="w-28 h-28 rounded-lg object-cover mr-4"
-                                            />
-                                        )}
-                                        {/* Song Info (Title, Channel, Requester) */}
-                                        <div className="flex-1 min-w-0 text-left">
-                                            <h2 className="text-white font-bold text-base line-clamp-2 mb-1">{room.current_song.title}</h2>
-                                            {room.current_song.channel && (
-                                                <p className="text-white/70 text-sm truncate mb-1">{room.current_song.channel}</p>
-                                            )}
-                                            <div className="flex items-center space-x-1 text-white/60 text-xs">
-                                                <User className="h-3 w-3" strokeWidth={2}/>
-                                                <span>{room.current_song.requester_name}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Audio Status Indicators */}
-                                    {(songDownloading || audioLoading || audioError || isNewUserLoadingAudio || (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))) && (
-                                        <div className="flex items-center justify-center space-x-2 mt-2 mb-2 text-sm">
-                                            {songDownloading && (
-                                                <span className="text-blue-400 flex items-center">
-                    <Download className="h-4 w-4 animate-bounce mr-1" strokeWidth={2}/>
-                    音訊載入中...
-                </span>
-                                            )}
-                                            {isNewUserLoadingAudio && !songDownloading && (
-                                                <span className="text-blue-400 flex items-center">
-                    <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
-                    音訊載入中...
-                </span>
-                                            )}
-                                            {(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && !songDownloading && !isNewUserLoadingAudio && (
-                                                <span className="text-yellow-400 flex items-center">
-                    <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
-                    檢查音訊狀態...
-                </span>
-                                            )}
-                                            {audioLoading && !songDownloading && !isNewUserLoadingAudio && !(room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id)) && (
-                                                <span className="text-white/60 flex items-center">
-                    <Loader2 className="h-4 w-4 animate-spin mr-1" strokeWidth={2}/>
-                    音訊載入中...
-                </span>
-                                            )}
-                                            {audioError && !songDownloading && !isNewUserLoadingAudio && (
-                                                <span className="text-red-400 flex items-center">
-                    <AlertCircle className="h-4 w-4 mr-1" strokeWidth={2}/>
-                                                    {audioError}
-                </span>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* Progress bar and controls on one line */}
-                                    <div className="flex items-center space-x-2 mt-1">
-                                        {/* Progress bar and time labels grouped together */}
-                                        <div className="flex-1">
-                                            <Progress value={progress} className="h-1"/>
-                                            <div className="flex justify-between text-white/60 text-xs mt-0.5">
-                                                <span>{formatTime(Math.floor(Math.max(0, currentTime)))}</span>
-                                                <span>{formatTime(room.current_song.duration)}</span>
-                                            </div>
-                                        </div>
-                                        {/* Controls */}
-                                        <div className="flex flex-col justify-start">
-                                            <div className="flex items-center space-x-2 -mt-4">
-                                                <Button
-                                                    onClick={togglePlayback}
-                                                    disabled={
-                                                        audioLoading ||
-                                                        songDownloading ||
-                                                        isNewUserLoadingAudio ||
-                                                        (room?.current_song && audioStatusCheckingRef.current.has(room.current_song.video_id))
-                                                    }
-                                                    size="icon"
-                                                    className="bg-white/20 active:bg-white/30 md:hover:bg-white/30 text-white rounded-full w-10 h-10 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                >
-                                                    {room.playback_state.is_playing && hasUserInteractedWithPlayButton ? (
-                                                        <Pause className="h-5 w-5" strokeWidth={2}/>
-                                                    ) : (
-                                                        <Play className="h-5 w-5" strokeWidth={2}/>
-                                                    )}
-                                                </Button>
-                                                <Button
-                                                    onClick={skipToNext}
-                                                    disabled={
-                                                        (room.autoplay && !room.queue.length)
-                                                    }
-                                                    size="icon"
-                                                    className="bg-white/20 active:bg-white/30 md:hover:bg-white/30 text-white rounded-full w-10 h-10"
-                                                >
-                                                    <SkipForward className="h-5 w-5" strokeWidth={2}/>
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </>
+                                <NowPlaying
+                                    song={room.current_song}
+                                    currentTime={currentTime}
+                                    isPlaying={room.playback_state.is_playing && hasUserInteractedWithPlayButton}
+                                    canSkip={!(room.autoplay && !room.queue.length)}
+                                    audioStatus={{
+                                        songDownloading,
+                                        audioLoading,
+                                        audioError,
+                                        isNewUserLoadingAudio,
+                                        isCheckingStatus: audioStatusCheckingRef.current.has(room.current_song.video_id),
+                                    }}
+                                    onTogglePlayback={togglePlayback}
+                                    onSkip={skipToNext}
+                                />
                             ) : (
-                                <QuickPlayGrid/>
+                                <QuickPlayGrid
+                                    songs={quickPlaySongs}
+                                    isLoading={quickPlayLoading}
+                                    addingSongId={quickPlayAdding}
+                                    onSelect={addQuickPlaySong}
+                                />
                             )}
                         </CardContent>
                     </Card>
 
-                    {/* Queue */}
-                    <Card className="bg-white/10 backdrop-blur-sm border-white/20">
-                        <CardContent className="p-4">
-                            <h3 className="text-white font-semibold mb-4 flex items-center justify-between">
-                                <div className="flex items-center">
-                                    <Music className="h-4 w-4 mr-2" strokeWidth={2}/>
-                                    播放清單 ({room.queue.length})
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    <span
-                                        className="text-xs text-white/70">自動播放</span>
-                                    <AutoplayToggle isEnabled={room.autoplay}
-                                                    onToggle={handleAutoplayToggle}/>
-                                </div>
-                            </h3>
+                    <QueueList
+                        queue={room.queue}
+                        autoplay={room.autoplay}
+                        onToggleAutoplay={handleAutoplayToggle}
+                        onRemoveSong={removeSong}
+                        onBringSongToTop={bringSongToTop}
+                    />
 
-                            {room.queue.length > 0 ? (
-                                <div className="space-y-3">
-                                    {room.queue.map((song, index) => (
-                                        <div
-                                            key={song.id}
-                                            className="relative overflow-hidden rounded-lg"
-                                            onTouchStart={(e) => handleTouchStart(e, song.id)}
-                                            onTouchMove={(e) => handleTouchMove(e, song.id)}
-                                            onTouchEnd={() => handleTouchEnd(song.id)}
-                                            onMouseDown={(e) => handleMouseDown(e, song.id)}
-                                            onMouseMove={(e) => handleMouseMove(e, song.id)}
-                                            onMouseUp={handleMouseUp}
-                                            onMouseLeave={handleMouseLeave}
-                                        >
-                                            {/* Main song info container */}
-                                            <div
-                                                className={`flex items-center gap-x-2 p-3 bg-white/5 rounded-lg transition-transform duration-300 ease-in-out ${
-                                                    swipedSongId === song.id ? "-translate-x-[60px]" : "translate-x-0"
-                                                }`}
-                                            >
-                                                <div
-                                                    className="text-white/60 text-sm font-mono w-2.5 flex-shrink-0">{index + 1}</div>
-                                                {song.thumbnail && (
-                                                    <img
-                                                        src={song.thumbnail || "/placeholder.jpg"}
-                                                        alt={song.title}
-                                                        className="w-12 h-12 rounded object-cover flex-shrink-0"
-                                                    />
-                                                )}
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-white font-medium truncate">{song.title}</p>
-                                                    <div className="flex items-center gap-x-1 text-white/60 text-sm">
-                                                        <span>{formatTime(song.duration)}</span>
-                                                        <span>•</span>
-                                                        <span>{song.requester_name}</span>
-                                                    </div>
-                                                </div>
-                                                {/* Bring to Top Button */}
-                                                {index !== 0 && ( // Only show if not the first song
-                                                    <Button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation() // Prevent swipe interaction
-                                                            bringSongToTop(song.id)
-                                                        }}
-                                                        size="sm"
-                                                        variant="ghost"
-                                                        className="text-white/60 active:text-blue-400 active:bg-blue-500/20 md:hover:text-blue-400 md:hover:bg-blue-500/20 flex-shrink-0 w-7 h-7 p-0"
-                                                        aria-label="Bring song to top"
-                                                    >
-                                                        <ArrowUpNarrowWide className="h-4 w-4" strokeWidth={2}/>
-                                                    </Button>
-                                                )}
-                                            </div>
-
-                                            {/* Delete button revealed on swipe */}
-                                            <div
-                                                className={`absolute inset-y-0 right-0 flex items-center justify-center bg-red-600 rounded-lg transition-transform duration-300 ease-in-out ${
-                                                    swipedSongId === song.id ? "translate-x-0" : "translate-x-full"
-                                                }`}
-                                                style={{width: "60px"}} // Smaller width for the delete area
-                                            >
-                                                <Button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation() // Prevent swipe interaction
-                                                        removeSong(song.id)
-                                                    }}
-                                                    size="icon"
-                                                    variant="ghost"
-                                                    className="text-white active:bg-red-700 md:hover:bg-red-700"
-                                                    aria-label="Delete song"
-                                                >
-                                                    <Trash2 className="h-5 w-5" strokeWidth={2}/>
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-center text-white/60 py-4">
-                                    <p>播放清單是空的</p>
-                                    <p className="text-sm mt-1">使用 LINE Bot 新增歌曲</p>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-
-                    {/* Members */}
-                    <Card className="bg-white/10 backdrop-blur-sm border-white/20">
-                        <CardContent className="p-4">
-                            <h3 className="text-white font-semibold mb-4 flex items-center">
-                                <Users className="h-4 w-4 mr-2" strokeWidth={2}/>
-                                房間成員 ({room.members.length})
-                            </h3>
-
-                            <div className="space-y-2">
-                                {room.members.map((member) => (
-                                    <div key={member.user_id}
-                                         className="flex items-center space-x-3 p-2 bg-white/5 rounded">
-                                        <User className="h-4 w-4 text-white/60" strokeWidth={2}/>
-                                        <span className="text-white">{member.user_name}</span>
-                                        {member.user_id === userId && (
-                                            <Badge variant="secondary" className="bg-white/20 text-white text-xs">
-                                                您
-                                            </Badge>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </CardContent>
-                    </Card>
+                    <MemberList members={room.members} currentUserId={userId}/>
                 </div>
             </div>
         </div>
