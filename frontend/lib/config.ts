@@ -22,6 +22,7 @@ export const API_ENDPOINTS = {
     // Playback endpoints
     PLAYBACK: (roomId: string) => `${API_CONFIG.BASE_URL}/api/room/${roomId}/playback`,
     SKIP_NEXT: (roomId: string) => `${API_CONFIG.BASE_URL}/api/room/${roomId}/queue/next`,
+    TOGGLE_REPEAT: (roomId: string) => `${API_CONFIG.BASE_URL}/api/room/${roomId}/repeat/toggle`,
 
     // Queue endpoints
     QUICK_PLAY: (roomId: string) => `${API_CONFIG.BASE_URL}/api/room/${roomId}/quick-play`,

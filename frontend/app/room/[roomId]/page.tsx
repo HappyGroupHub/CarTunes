@@ -267,6 +267,13 @@ export default function RoomPage() {
         }
     }, []);
 
+    // Loop local audio while repeat is enabled, so the song restarts seamlessly
+    useEffect(() => {
+        if (audioRef.current) {
+            audioRef.current.loop = room?.repeat ?? false
+        }
+    }, [room?.repeat])
+
     // Callbacks for audio-loader, made stable by not depending on 'room' directly
     const handleLoadedMetadata = useCallback((audioElement: HTMLAudioElement, initialTime: number) => {
         // If initialTime is negative (loading state), don't set audio currentTime yet
@@ -432,6 +439,7 @@ export default function RoomPage() {
                                 : roomData.playback_state,
                         active_users: prev?.active_users || 0,
                         autoplay: roomData.autoplay,
+                        repeat: roomData.repeat ?? false,
                     }))
                     setAutoplayEnabled(roomData.autoplay)
 
@@ -648,6 +656,10 @@ export default function RoomPage() {
                     setAutoplayEnabled(data.data.autoplay)
                     break
 
+                case "REPEAT_CHANGED":
+                    setRoom((prev) => (prev ? {...prev, repeat: data.data.repeat} : null))
+                    break
+
                 case "PLAYBACK_STARTED":
                     setRoom((prev) =>
                         prev
@@ -656,11 +668,14 @@ export default function RoomPage() {
                                 playback_state: {
                                     ...prev.playback_state,
                                     is_playing: true,
-                                    current_time: data.data.current_time || prev.playback_state.current_time,
+                                    current_time: data.data.current_time ?? prev.playback_state.current_time,
                                 },
                             }
                             : null,
                     )
+                    if (data.data.current_time !== undefined && data.data.current_time !== null) {
+                        setCurrentTime(Math.max(0, data.data.current_time))
+                    }
                     // Handle audio playback - check if audio is ready first
                     if (audioRef.current && currentUserInteracted) {
                         if (data.data.current_time !== undefined && data.data.current_time >= 0) {
@@ -1266,6 +1281,32 @@ export default function RoomPage() {
         }
     }
 
+    const handleRepeatToggle = async () => {
+        if (!roomId) return
+        try {
+            const response = await fetch(API_ENDPOINTS.TOGGLE_REPEAT(roomId), {
+                method: "POST",
+            })
+
+            // Handle throttling - just do nothing
+            if (response.status === 429) {
+                console.log("Repeat toggle throttled, ignoring")
+                return
+            }
+
+            if (!response.ok) {
+                throw new Error("Failed to toggle repeat")
+            }
+
+            const data = await response.json()
+            setRoom((prev) => (prev ? {...prev, repeat: data.repeat} : null))
+        } catch (error) {
+            console.error("Error toggling repeat:", error)
+            setErrorMessage("重複播放切換失敗")
+            setShowErrorModal(true)
+        }
+    }
+
     const copyRoomId = async () => {
         if (!roomId) return
 
@@ -1353,6 +1394,7 @@ export default function RoomPage() {
                                     currentTime={currentTime}
                                     isPlaying={room.playback_state.is_playing && hasUserInteractedWithPlayButton}
                                     canSkip={!(room.autoplay && !room.queue.length)}
+                                    isRepeat={room.repeat}
                                     audioStatus={{
                                         songDownloading,
                                         audioLoading,
@@ -1362,6 +1404,7 @@ export default function RoomPage() {
                                     }}
                                     onTogglePlayback={togglePlayback}
                                     onSkip={skipToNext}
+                                    onToggleRepeat={handleRepeatToggle}
                                 />
                             ) : (
                                 <QuickPlayGrid

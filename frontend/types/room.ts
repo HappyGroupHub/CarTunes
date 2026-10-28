@@ -30,6 +30,7 @@ export interface Room {
     playback_state: PlaybackState
     active_users: number
     autoplay: boolean
+    repeat: boolean
 }
 
 export interface QuickPlaySong {
