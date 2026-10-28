@@ -55,6 +55,9 @@ export default function RoomPage() {
     const [isPlayingSilentAudio, setIsPlayingSilentAudio] = useState(false)
     const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
     const audioLoaderCleanupRef = useRef<(() => void) | null>(null)
+    // Set right before we pause or reload the audio ourselves, so the 'pause' event
+    // handler can tell our own pauses apart from pauses made by the system
+    const expectedPauseRef = useRef(false)
 
     // Refs to hold the latest state values for stable callbacks
     const roomRef = useRef<Room | null>(null)
@@ -247,10 +250,12 @@ export default function RoomPage() {
             // When playing silent audio, force the playback state to paused
             navigator.mediaSession.playbackState = 'paused';
         } else {
-            // Normal operation - sync with the true state from the room
-            navigator.mediaSession.playbackState = room?.playback_state.is_playing ? 'playing' : 'paused';
+            // Normal operation - sync with the room, but show paused if this device isn't playing along
+            // (e.g. it got paused by disconnecting from CarPlay), so the lock screen offers play
+            navigator.mediaSession.playbackState =
+                room?.playback_state.is_playing && hasUserInteractedWithPlayButton ? 'playing' : 'paused';
         }
-    }, [room?.playback_state.is_playing, isPlaybackRequestPending, isPlayingSilentAudio]);
+    }, [room?.playback_state.is_playing, hasUserInteractedWithPlayButton, isPlaybackRequestPending, isPlayingSilentAudio]);
 
     useEffect(() => {
         if (silentAudioRef.current) {
@@ -325,6 +330,31 @@ export default function RoomPage() {
         [roomId, userId]
     )
 
+    // Pause local audio on purpose (e.g. backend asked to pause)
+    const pauseLocalAudio = useCallback(() => {
+        const audio = audioRef.current
+        if (!audio || audio.paused) return
+        expectedPauseRef.current = true
+        audio.pause()
+    }, [])
+
+    // Handle pauses we didn't make, e.g. the phone disconnected from CarPlay/Bluetooth.
+    // The system pauses the audio element then, so stop auto-resuming on this device
+    // until the user presses play again. The room itself keeps playing for others.
+    const handleAudioPause = useCallback(() => {
+        const audio = audioRef.current
+        if (expectedPauseRef.current) {
+            expectedPauseRef.current = false
+            return
+        }
+        if (!audio || audio.ended) return // Song finished naturally
+        if (!hasUserInteractedWithPlayButtonRef.current) return
+
+        console.log("Audio paused by the system (audio output disconnected?), stop auto-resuming")
+        hasUserInteractedWithPlayButtonRef.current = false
+        setHasUserInteractedWithPlayButton(false)
+    }, [])
+
     const loadAudioForCurrentSong = useCallback(
         async (videoId: string, initialTime: number, isPlaying: boolean, userHasInteracted: boolean) => {
             if (audioLoaderCleanupRef.current) {
@@ -333,6 +363,10 @@ export default function RoomPage() {
             }
 
             if (audioRef.current) {
+                // Loading a new source fires 'pause' if the audio is playing
+                if (!audioRef.current.paused) {
+                    expectedPauseRef.current = true
+                }
                 setAudioInitialized(true)
                 audioLoaderCleanupRef.current = loadAudio(audioRef.current, videoId, {
                     setAudioLoading,
@@ -496,7 +530,7 @@ export default function RoomPage() {
 
                     } else if (!data.data.current_song && audioRef.current) {
                         // Pause and clear audio when no current song
-                        audioRef.current.pause()
+                        pauseLocalAudio()
                         audioRef.current.src = ""
                         setCurrentTime(0)
                         setAudioError(null)
@@ -605,7 +639,7 @@ export default function RoomPage() {
                             // If user hasn't interacted, we can't auto-play due to browser restrictions
                         } else {
                             // Backend wants audio to pause
-                            audioRef.current.pause()
+                            pauseLocalAudio()
                             if (newCurrentTime !== undefined && Math.abs(audioRef.current.currentTime - newCurrentTime) > 2) {
                                 audioRef.current.currentTime = newCurrentTime
                             }
@@ -715,7 +749,7 @@ export default function RoomPage() {
                     )
                     // Handle audio pause
                     if (audioRef.current) {
-                        audioRef.current.pause()
+                        pauseLocalAudio()
                         if (
                             data.data.current_time !== undefined &&
                             Math.abs(audioRef.current.currentTime - data.data.current_time) > 2
@@ -798,7 +832,7 @@ export default function RoomPage() {
                     break
             }
         },
-        [loadAudioForCurrentSong, setErrorMessage, setShowErrorModal],
+        [loadAudioForCurrentSong, pauseLocalAudio, setErrorMessage, setShowErrorModal],
     )
 
     const checkAudioStatus = useCallback(async (videoId: string) => {
@@ -1350,7 +1384,7 @@ export default function RoomPage() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600">
-            <audio ref={audioRef} preload="metadata" crossOrigin="anonymous"/>
+            <audio ref={audioRef} preload="metadata" crossOrigin="anonymous" onPause={handleAudioPause}/>
             <audio
                 ref={silentAudioRef}
                 src="/soundless.mp3"
