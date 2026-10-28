@@ -105,6 +105,11 @@ room_cleanup_after_inactivity: 120
 # Default is 10 rooms.
 maximum_room: 10
 
+# The maximum number of members allowed in a single room.
+# Users who are already in the room can always rejoin.
+# Set to 0 for unlimited. Default is 10 members.
+maximum_members_per_room: 10
+
 # The interval for wss to broadcast current song progress to clients, aka the website.
 # In seconds, default is 5 seconds.
 progress_broadcast_interval: 5
@@ -170,6 +175,8 @@ def read_config():
                 'pause_music_after_no_connections': data['pause_music_after_no_connections'],
                 'room_cleanup_after_inactivity': data['room_cleanup_after_inactivity'],
                 'maximum_room': data['maximum_room'],
+                # Optional for backward compatibility with older config files
+                'maximum_members_per_room': data.get('maximum_members_per_room', 10),
                 'progress_broadcast_interval': data['progress_broadcast_interval'],
                 'action_throttle_seconds': data['action_throttle_seconds'],
                 'bring_to_top_throttle': {

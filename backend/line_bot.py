@@ -263,6 +263,7 @@ async def join_room(user_id: str, room_id: str, user_name: str) -> (bool, str | 
     This function would link user rich menu if success.
     Returns a tuple (success, error_message) where success is True if joined, False if failed.
     If error_message is "No such room", it means the room does not exist.
+    If error_message is "Room is full", it means the room reached its member limit.
     Else, error_message would be just None.
     """
     user_rooms[user_id] = "TEMP"  # Add temporary room entry to prevent spam
@@ -280,6 +281,9 @@ async def join_room(user_id: str, room_id: str, user_name: str) -> (bool, str | 
         else:
             # API call failed
             del user_rooms[user_id]  # Remove temp user_rooms entry
+            if response.status_code == 403 and \
+                    response.json().get('detail') == "Forbidden: Reached maximum member limit":
+                return False, "Room is full"
             return False, "No such room"
     except Exception as e:
         print(f"Error joining room: {e}")
@@ -1139,6 +1143,8 @@ async def handle_message(event):
                 reply_message = TextMessage(
                     text="❌ 錯誤的房間代碼！\n"
                          "請輸入正確的房間代碼，或直接轉發朋友的訊息至此即可加入房間～")
+            elif error_message == "Room is full":
+                reply_message = TextMessage(text="❌ 房間人數已達上限，無法加入！")
             else:
                 reply_message = TextMessage(text="加入房間時發生錯誤，請稍後再試。")
             await line_bot_api.reply_message(
