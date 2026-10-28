@@ -61,6 +61,7 @@ class WSMessageType(str, Enum):
     ROOM_CLOSING = "room_closing"
     ROOM_STATE = "room_state"
     ROOM_STATS_UPDATE = "room_stats_update"
+    REPEAT_CHANGED = "repeat_changed"
 
     # Keep-alive messages, used while music is paused
     PING = "ping"
@@ -119,6 +120,7 @@ class Room(BaseModel):
     last_activity: datetime  # Updated when users connect or music plays
     active_connections: int = 0  # Number of active WebSocket connections
     autoplay: bool = True
+    repeat: bool = False  # Repeat the current song when it ends
     autoplay_playlist: List[Dict[str, Any]] = []
     quick_play_songs: List[Dict[str, Any]] = []  # Pre-fetched quick play songs
 
@@ -134,6 +136,7 @@ class RoomResponse(BaseModel):
     playback_state: dict
     active_users: int
     autoplay: bool
+    repeat: bool = False
     quick_play_songs: List[dict] = []
 
 

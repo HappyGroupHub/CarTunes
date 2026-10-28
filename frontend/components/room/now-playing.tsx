@@ -2,7 +2,7 @@
 
 import {Button} from "@/components/ui/button"
 import {Progress} from "@/components/ui/progress"
-import {AlertCircle, Download, Loader2, Pause, Play, SkipForward, User} from "lucide-react"
+import {AlertCircle, Download, Loader2, Pause, Play, Repeat1, SkipForward, User} from "lucide-react"
 import {formatTime} from "@/lib/utils"
 import type {Song} from "@/types/room"
 
@@ -19,9 +19,11 @@ interface NowPlayingProps {
     currentTime: number
     isPlaying: boolean
     canSkip: boolean
+    isRepeat: boolean
     audioStatus: AudioStatus
     onTogglePlayback: () => void
     onSkip: () => void
+    onToggleRepeat: () => void
 }
 
 export function NowPlaying({
@@ -29,9 +31,11 @@ export function NowPlaying({
                                currentTime,
                                isPlaying,
                                canSkip,
+                               isRepeat,
                                audioStatus,
                                onTogglePlayback,
                                onSkip,
+                               onToggleRepeat,
                            }: NowPlayingProps) {
     const {songDownloading, audioLoading, audioError, isNewUserLoadingAudio, isCheckingStatus} = audioStatus
     const progress = (currentTime / song.duration) * 100
@@ -110,6 +114,16 @@ export function NowPlaying({
                 {/* Controls */}
                 <div className="flex flex-col justify-start">
                     <div className="flex items-center space-x-2 -mt-4">
+                        <Button
+                            onClick={onToggleRepeat}
+                            size="icon"
+                            variant="ghost"
+                            className={`${isRepeat ? "text-green-400 active:text-green-400 md:hover:text-green-400 bg-white/20" : "text-white/60 active:text-white md:hover:text-white"} active:bg-white/30 md:hover:bg-white/30 rounded-full w-8 h-8`}
+                            aria-label={isRepeat ? "Disable repeat" : "Enable repeat"}
+                            aria-pressed={isRepeat}
+                        >
+                            <Repeat1 className="h-4 w-4" strokeWidth={2}/>
+                        </Button>
                         <Button
                             onClick={onTogglePlayback}
                             disabled={audioLoading || songDownloading || isNewUserLoadingAudio || isCheckingStatus}

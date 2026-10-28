@@ -202,6 +202,14 @@ class ConnectionManager:
         )
         await self.broadcast_to_room(room_id, message)
 
+    async def broadcast_repeat_changed(self, room_id: str, repeat: bool):
+        """Notify room when repeat setting changes"""
+        message = WSMessage(
+            type=WSMessageType.REPEAT_CHANGED,
+            data={"repeat": repeat}
+        )
+        await self.broadcast_to_room(room_id, message)
+
     async def broadcast_room_state(self, room_id: str, room_data: dict):
         """Send complete room state"""
         message = WSMessage(

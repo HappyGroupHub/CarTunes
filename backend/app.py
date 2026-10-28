@@ -105,7 +105,11 @@ async def broadcast_playback_progress():
                     current_time = room_manager.get_current_playback_time(room_id)
 
                     # Check if song ended
-                    if current_time >= room.current_song.duration:
+                    if current_time >= room.current_song.duration and room.repeat:
+                        # Repeat is enabled, restart the current song
+                        room_manager.restart_current_song(room_id)
+                        await ws_manager.broadcast_playback_state(room_id, True, 0.0)
+                    elif current_time >= room.current_song.duration:
                         # Auto-skip to next song
                         next_song = room_manager.skip_to_next_song(room_id)
                         await ws_manager.broadcast_song_changed(
@@ -356,6 +360,7 @@ async def create_room(
         playback_state=room.playback_state.dict(),
         active_users=room.active_connections,
         autoplay=room.autoplay,
+        repeat=room.repeat,
         quick_play_songs = room.quick_play_songs
     )
 
@@ -388,7 +393,8 @@ async def join_room(request_object: Request, request: JoinRoomRequest):
         "playback_state": {
             **room.playback_state.dict(),
             "current_time": room_manager.get_current_playback_time(request.room_id)},
-        "autoplay": room.autoplay
+        "autoplay": room.autoplay,
+        "repeat": room.repeat
     })
 
     return RoomResponse(
@@ -400,7 +406,8 @@ async def join_room(request_object: Request, request: JoinRoomRequest):
         current_song=room.current_song.dict() if room.current_song else None,
         playback_state=room.playback_state.dict(),
         active_users=room.active_connections,
-        autoplay=room.autoplay
+        autoplay=room.autoplay,
+        repeat=room.repeat
     )
 
 
@@ -427,7 +434,8 @@ async def get_room(room_id: str):
             "current_time": room_manager.get_current_playback_time(room_id)
         },
         active_users=room.active_connections,
-        autoplay=room.autoplay
+        autoplay=room.autoplay,
+        repeat=room.repeat
     )
 
 
@@ -458,7 +466,8 @@ async def leave_room(request: Request, room_id: str, user_id: str = Query(...)):
             "playback_state": {
                 **room.playback_state.dict(),
                 "current_time": room_manager.get_current_playback_time(room_id)},
-            "autoplay": room.autoplay
+            "autoplay": room.autoplay,
+            "repeat": room.repeat
         })
     if not room:  # Room no longer exists (last member left)
         # Cleanup last_request_times for this room
@@ -501,6 +510,27 @@ async def toggle_autoplay(room_id: str):
         asyncio.create_task(async_check_autoplay(room_id))
 
     return {"success": True, "autoplay": new_state}
+
+
+@app.post("/api/room/{room_id}/repeat/toggle")
+async def toggle_repeat(room_id: str):
+    """Toggle repeat setting for a room"""
+    # Throttle this action
+    if room_id in last_request_times and time.time() - last_request_times[room_id].get(
+            'repeat_toggle', 0) < config['action_throttle_seconds']:
+        raise HTTPException(status_code=429, detail="Too many requests")
+
+    if room_id not in last_request_times:
+        last_request_times[room_id] = {}
+    last_request_times[room_id]['repeat_toggle'] = time.time()
+
+    new_state = room_manager.toggle_repeat(room_id)
+    if new_state is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    await ws_manager.broadcast_repeat_changed(room_id, new_state)
+
+    return {"success": True, "repeat": new_state}
 
 
 @app.get("/api/room/{room_id}/quick-play")
@@ -991,7 +1021,8 @@ async def get_user_current_room(user_id: str):
                 "current_time": room_manager.get_current_playback_time(room.room_id)
             },
             active_users=room.active_connections,
-            autoplay=room.autoplay
+            autoplay=room.autoplay,
+            repeat=room.repeat
         )
     }
 
@@ -1029,7 +1060,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str = 
         "playback_state": {
             **room.playback_state.dict(),
             "current_time": room_manager.get_current_playback_time(room_id)},
-        "autoplay": room.autoplay
+        "autoplay": room.autoplay,
+        "repeat": room.repeat
     })
 
     try:

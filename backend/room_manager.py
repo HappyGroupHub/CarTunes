@@ -418,6 +418,28 @@ class RoomManager:
         logger.info(f"Room {room_id} autoplay toggled to: {room.autoplay}")
         return room.autoplay
 
+    def toggle_repeat(self, room_id: str) -> Optional[bool]:
+        """Toggle repeat setting for a room"""
+        room = self.rooms.get(room_id)
+        if not room:
+            return None
+
+        room.repeat = not room.repeat
+        logger.info(f"Room {room_id} repeat toggled to: {room.repeat}")
+        return room.repeat
+
+    def restart_current_song(self, room_id: str) -> bool:
+        """Restart the current song from the beginning, used when repeat is enabled"""
+        room = self.rooms.get(room_id)
+        if not room or not room.current_song:
+            return False
+
+        room.playback_state.is_playing = True
+        room.playback_state.current_time = 0.0
+        room.playback_state.last_update = datetime.now()
+        room.last_activity = datetime.now()
+        return True
+
     async def check_and_add_autoplay_song(self, room_id: str) -> Optional[Song]:
         """Check if autoplay should add a song, add it if needed"""
         room = self.get_room(room_id)
