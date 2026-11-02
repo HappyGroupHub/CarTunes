@@ -51,7 +51,7 @@ idna==3.20
     #   httpx
     #   requests
     #   yarl
-line-bot-sdk==3.22.0
+line-bot-sdk==3.27.0
     # via cartunes
 multidict==7.2.1
     # via
@@ -63,12 +63,12 @@ propcache==0.5.4
     # via
     #   aiohttp
     #   yarl
-pydantic==2.12.5
+pydantic==2.14.2
     # via
     #   cartunes
     #   fastapi
     #   line-bot-sdk
-pydantic-core==2.41.5
+pydantic-core==2.50.2
     # via pydantic
 python-dateutil==2.9.0.post0
     # via line-bot-sdk
@@ -98,7 +98,7 @@ urllib3==2.8.0
     # via
     #   line-bot-sdk
     #   requests
-uvicorn==0.40.0
+uvicorn==0.54.0
     # via cartunes
 websockets==15.0.1
     # via cartunes
